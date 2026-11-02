@@ -1,29 +1,19 @@
-<div align="center">
-
 # Effort Pilot
 
-**The right reasoning effort for every turn in Claude Code. Automatically.**
+### Spend 20–50% fewer tokens in <img src="assets/claude.svg" height="22" alt=""> Claude Code — without thinking less where it matters.
 
-Plans get `xhigh`. Building gets `medium`. A quick question gets `low`.<br>
-You stop paying for deep thinking where none is needed — and get more of it where it counts.
+Effort Pilot switches the reasoning effort for every turn, automatically: plans get `xhigh`, building gets `medium`, a quick question gets `low`. You stop paying for deep thinking where none is needed, and get more of it where it counts.
+
+[![version](https://img.shields.io/github/v/release/vadympetryshyn/effort-pilot?label=version&color=d97757)](https://github.com/vadympetryshyn/effort-pilot/releases)
+[![license](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
 
 <img src="assets/hero.svg" alt="Effort Pilot switching effort: xhigh for a plan, medium to build it, low for a question" width="820">
 
-[![version](https://img.shields.io/github/v/release/vadympetryshyn/effort-pilot?label=version&color=d97757)](https://github.com/vadympetryshyn/effort-pilot/releases)
-[![CI](https://github.com/vadympetryshyn/effort-pilot/actions/workflows/ci.yml/badge.svg)](https://github.com/vadympetryshyn/effort-pilot/actions/workflows/ci.yml)
-[![license](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
-
-</div>
-
 ## Why
 
-|  | vs. always-on `high` |
-|---|---|
-| 💸 Cost / usage | **≈35% less** |
-| ⚡ Replies | **≈1.5× faster** |
-| 🎯 Turns that fall short | **≈20% fewer** — plans get `xhigh`, not `high` |
+<img src="assets/savings.svg" alt="Effort Pilot vs. always-on high: about 35% fewer tokens, 1.5x faster replies, 20% fewer turns that fall short" width="820">
 
-<sub>≈ Approximate, from the author's own sessions. Every setup differs: measure yours with `/effort-pilot report`.</sub>
+<sub>≈ Approximate, from the author's own sessions; savings range from ~20% on hard work to ~50% and more on everyday turns. Every setup differs: measure yours with `/effort-pilot report`.</sub>
 
 ## Install
 
