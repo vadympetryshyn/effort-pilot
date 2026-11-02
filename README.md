@@ -2,7 +2,7 @@
 
 ### Spend 20–50% fewer tokens in <img src="assets/claude-inline.svg" height="30" alt=""> Claude Code — without thinking less where it matters.
 
-Effort Pilot switches the reasoning effort for every turn, automatically: plans get `xhigh`, building gets `medium`, questions and trivial tasks — a git commit, a push, a rename — get `low`. You stop paying for deep thinking where none is needed, and get more of it where it counts.
+Effort Pilot switches the reasoning effort for every turn, automatically: plans get `xhigh`, building gets `medium`, questions and trivial tasks — a git commit, a push, a rename — get `low`. You stop paying for deep thinking where none is needed — replies come **~1.5× faster** — and get more of it where it counts.
 
 [![version](https://img.shields.io/github/v/release/vadympetryshyn/effort-pilot?label=version&color=d97757)](https://github.com/vadympetryshyn/effort-pilot/releases)
 [![license](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
