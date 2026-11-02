@@ -7,7 +7,7 @@ Effort Pilot switches the reasoning effort for every turn, automatically: plans 
 [![version](https://img.shields.io/github/v/release/vadympetryshyn/effort-pilot?label=version&color=d97757)](https://github.com/vadympetryshyn/effort-pilot/releases)
 [![license](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
 
-<img src="assets/hero-light.svg" alt="Effort Pilot switching effort: xhigh for a plan, medium to build it, low for a question" width="820">
+<img src="assets/hero-4.svg" alt="Effort Pilot switching effort: xhigh to plan, high to investigate, medium to build, low to commit and push" width="820">
 
 ## Why
 
