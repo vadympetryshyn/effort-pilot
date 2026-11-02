@@ -1,0 +1,2 @@
+*.py diff=python
+*.md diff=markdown

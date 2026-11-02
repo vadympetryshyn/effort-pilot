@@ -1,0 +1,74 @@
+{
+  "name": "effort-pilot",
+  "version": "1.0.0",
+  "description": "The right reasoning effort for every turn: plans xhigh, building medium, questions low, picked by a Haiku classifier. The model and prompt cache stay untouched.",
+  "author": { "name": "Vadym Petryshyn", "url": "https://github.com/vadympetryshyn" },
+  "homepage": "https://github.com/vadympetryshyn/effort-pilot",
+  "repository": "https://github.com/vadympetryshyn/effort-pilot",
+  "license": "MIT",
+  "keywords": ["effort", "reasoning", "thinking", "opus", "fable", "haiku", "classifier", "cost", "hooks"],
+  "types": "./types/index.d.ts",
+  "userConfig": {
+    "planEffort": {
+      "type": "string",
+      "title": "Plan effort",
+      "description": "Effort for plans and plan mode.",
+      "options": ["low", "medium", "high", "xhigh", "max"],
+      "default": "xhigh"
+    },
+    "analyzeEffort": {
+      "type": "string",
+      "title": "Analyze effort",
+      "description": "Effort for hard questions and investigations, with nothing to build.",
+      "options": ["low", "medium", "high", "xhigh", "max"],
+      "default": "high"
+    },
+    "buildEffort": {
+      "type": "string",
+      "title": "Build effort",
+      "description": "Effort for building and fixing, and for carrying out an approved plan. Subagents never go below it.",
+      "options": ["low", "medium", "high", "xhigh", "max"],
+      "default": "medium"
+    },
+    "hardBuildEffort": {
+      "type": "string",
+      "title": "Hard build effort",
+      "description": "Effort for building or fixing that is hard: many files, tricky logic, a bug of unknown cause.",
+      "options": ["low", "medium", "high", "xhigh", "max"],
+      "default": "high"
+    },
+    "talkEffort": {
+      "type": "string",
+      "title": "Talk effort",
+      "description": "Effort for questions, chat, status and tiny edits.",
+      "options": ["low", "medium", "high", "xhigh", "max"],
+      "default": "low"
+    },
+    "managedModels": {
+      "type": "string",
+      "title": "Managed models",
+      "description": "Comma-separated words; a model whose name holds one of them (case-insensitive) gets its effort set. Others are left alone.",
+      "default": "opus,fable"
+    },
+    "headless": {
+      "type": "boolean",
+      "title": "Steer headless runs",
+      "description": "Also set the effort in claude -p and Agent SDK runs. Off: only interactive sessions.",
+      "default": false
+    },
+    "measure": {
+      "type": "boolean",
+      "title": "Measure",
+      "description": "Leave a share of turns at your own effort (control turns) and record every turn, so /effort-pilot report can compare cost, speed and quality against high. Off: the plugin only sets the effort.",
+      "default": false
+    },
+    "controlShare": {
+      "type": "number",
+      "title": "Control share (%)",
+      "description": "While measuring: the percent of eligible turns left at high, 0 to 100.",
+      "min": 0,
+      "max": 100,
+      "default": 30
+    }
+  }
+}

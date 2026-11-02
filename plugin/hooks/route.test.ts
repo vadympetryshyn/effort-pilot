@@ -1,0 +1,256 @@
+import { describe, expect, test } from 'claude-code/testing'
+
+import type { Route, Spend, Task, TurnRecord } from '../types'
+import { afterPlan, carry, configFrom, DEFAULTS, effortFor, forAgent, forNotice, managed, midTurn, parse, parseRecords, report } from './route'
+
+const route = (phase: Route['phase'], effort: Route['effort'], extra: Partial<Route> = {}): Route => ({ phase, hard: false, effort, why: 'w', ...extra })
+const task = (phase: Task['phase'], effort: Task['effort']): Task => ({ phase, hard: false, effort, text: 'the work' })
+
+describe('effortFor', () => {
+  test('plan xhigh, analyze high, build medium or high when hard, talk low', () => {
+    expect(effortFor('plan', false)).toBe('xhigh')
+    expect(effortFor('analyze', false)).toBe('high')
+    expect(effortFor('implement', false)).toBe('medium')
+    expect(effortFor('fix', true)).toBe('high')
+    expect(effortFor('chat', false)).toBe('low')
+    expect(effortFor('trivial', false, true)).toBe('xhigh')
+  })
+})
+
+describe('carry', () => {
+  test('a follow-up keeps the work\'s effort', () => {
+    const r = carry(task('plan', 'xhigh'), route('chat', 'low', { continues: true }), 'why so?')
+    expect(r.route.effort).toBe('xhigh')
+    expect(r.route.kept).toBe(true)
+  })
+  test('a question about a build takes its own effort; the build stays the work', () => {
+    const r = carry(task('implement', 'high'), route('chat', 'low', { continues: true }), 'is coral the orange one?')
+    expect(r.route.effort).toBe('low')
+    expect(r.task.phase).toBe('implement')
+  })
+  test('a question about research keeps the research effort', () => {
+    expect(carry(task('analyze', 'high'), route('chat', 'low', { continues: true }), 'and what about X?').route.effort).toBe('high')
+  })
+  test('restating the last answer (translate, shorten) takes its own light effort', () => {
+    const pick = parse('{"phase":"chat","hard":false,"continues":true,"restate":true,"why":"translate"}')!
+    expect(pick.continues).toBe(false)
+    expect(carry(task('analyze', 'high'), pick, 'translate it').route.effort).toBe('low')
+  })
+  test('moving from planning to building takes the build\'s effort', () => {
+    expect(carry(task('plan', 'xhigh'), route('implement', 'medium', { continues: true }), 'go').route.effort).toBe('medium')
+    expect(carry(task('plan', 'xhigh'), route('implement', 'high', { hard: true, continues: true }), 'go').route.effort).toBe('medium')
+    expect(carry(task('analyze', 'high'), route('fix', 'high', { hard: true, continues: true }), 'fix it').route.effort).toBe('high')
+  })
+  test('a side question gets its own effort and keeps the work under way', () => {
+    const r = carry(task('analyze', 'high'), route('chat', 'low', { continues: false }), 'what is a mutex?')
+    expect(r.route.effort).toBe('low')
+    expect(r.task.phase).toBe('analyze')
+  })
+})
+
+describe('an effort the person asks for', () => {
+  test('it stands over the rule', () => {
+    const pick = parse('{"phase":"implement","hard":false,"continues":false,"asked":"high","build":"none","why":"add a button"}')!
+    expect(pick.effort).toBe('high')
+    expect(pick.asked).toBe('high')
+    expect(pick.build).toBe(undefined)
+  })
+  test('none, or a word that is not a level, asks for nothing', () => {
+    const pick = parse('{"phase":"chat","hard":false,"continues":false,"asked":"hard","why":"q"}')!
+    expect(pick.effort).toBe('low')
+    expect(pick.asked).toBe(undefined)
+  })
+  test('the follow-ups of that work keep it', () => {
+    const asked = carry(null, route('implement', 'xhigh', { asked: 'xhigh' }), 'do it on xhigh')
+    expect(asked.task.asked).toBe('xhigh')
+    expect(carry(asked.task, route('chat', 'low', { continues: true }), 'why so?').route.effort).toBe('xhigh')
+  })
+  test('a new task ends it', () => {
+    const asked = carry(null, route('implement', 'xhigh', { asked: 'xhigh' }), 'do it on xhigh').task
+    expect(carry(asked, route('chat', 'low', { continues: false }), 'what is a mutex?').route.effort).toBe('low')
+  })
+  test('the effort asked for the build carries out the plan', () => {
+    const planning: Task = { ...task('plan', 'xhigh'), build: 'high' }
+    expect(afterPlan('p', planning).route.effort).toBe('high')
+    expect(carry(planning, route('implement', 'medium', { continues: true }), 'go').route.effort).toBe('high')
+  })
+  test('taking it back hands the effort to the rule again', () => {
+    const asked = carry(null, route('implement', 'xhigh', { asked: 'xhigh' }), 'do it on xhigh').task
+    const back = parse('{"phase":"implement","hard":false,"continues":true,"asked":"auto","why":"back to auto"}')!
+    expect(back.release).toBe(true)
+    expect(carry(asked, back, 'back to auto').route.effort).toBe('medium')
+    expect(midTurn(asked, route('implement', 'xhigh'), back, 'back to auto')?.route?.effort).toBe('medium')
+  })
+  test('typed while the agent works, it takes effect at once, up or down', () => {
+    const r = midTurn(task('implement', 'high'), route('implement', 'high'), route('implement', 'medium', { continues: true, asked: 'medium' }), 'medium is enough')
+    expect(r?.route?.effort).toBe('medium')
+    expect(r?.task.asked).toBe('medium')
+  })
+})
+
+describe('a message typed while the agent works', () => {
+  test('a question or correction about the work changes nothing', () => {
+    expect(midTurn(task('implement', 'medium'), route('implement', 'medium'), route('analyze', 'high', { continues: true }), 'why this way?')).toBe(null)
+  })
+  test('a side remark or thanks changes nothing', () => {
+    expect(midTurn(task('implement', 'medium'), route('implement', 'medium'), route('chat', 'low', { continues: false }), 'thanks')).toBe(null)
+  })
+  test('a new, harder task raises the turn and becomes the work', () => {
+    const r = midTurn(task('chat', 'low'), route('chat', 'low'), route('analyze', 'high', { continues: false }), 'now find why login fails')
+    expect(r?.route?.effort).toBe('high')
+    expect(r?.task.phase).toBe('analyze')
+  })
+  test('a new, lighter task becomes the work but never lowers the turn', () => {
+    const r = midTurn(task('plan', 'xhigh'), route('plan', 'xhigh'), route('implement', 'medium', { continues: false }), 'also add a button')
+    expect(r?.route).toBe(null)
+    expect(r?.task.phase).toBe('implement')
+  })
+})
+
+describe('subagents, notifications, an approved plan', () => {
+  test('a subagent thinks at least at medium', () => {
+    expect(forAgent(route('trivial', 'low')).effort).toBe('medium')
+    expect(forAgent(route('analyze', 'high')).effort).toBe('high')
+  })
+  test('a notification goes at the work it serves; with no work known, at its own pick', () => {
+    expect(forNotice(null, task('implement', 'medium'))?.effort).toBe('medium')
+    expect(forNotice(route('chat', 'low'), task('fix', 'high'))?.effort).toBe('high')
+    expect(forNotice(route('chat', 'low'), null)?.effort).toBe('low')
+    expect(forNotice(null, null)).toBe(null)
+  })
+  test('an approved plan is implementation at medium, always', () => {
+    expect(afterPlan('p').route.effort).toBe('medium')
+    expect(afterPlan('p').route.phase).toBe('implement')
+  })
+})
+
+describe('report', () => {
+  const cls: Spend = { calls: 1, input: 800, out: 40, cacheRead: 0, cacheWrite: 0, ms: 1000 }
+  const base = {
+    s: 'a', hard: false, chosen: 'medium', base: 'high', model: 'claude-opus-5-5', steps: 3, input: 10,
+    cacheRead: 100_000, cacheWrite: 1000, ms: 1000, reason: 'answer', phase: 'implement', cls,
+  } as const
+  const records: TurnRecord[] = []
+  let t = 0
+  for (const who of [undefined, 'notification', 'agent'] as const) {
+    for (const arm of ['auto', 'control'] as const) {
+      for (let i = 0; i < 5; i++) {
+        records.push({ ...base, t: t++, who, arm, sent: arm === 'auto' ? 'medium' : 'high', out: arm === 'auto' ? 800 : 1200, gen: arm === 'auto' ? 500 + i : 1000 + i })
+      }
+    }
+  }
+  test('groups by whose turn, old records as your prompts', () => {
+    const out = report(records)
+    expect(out).toContain('your prompts · implement')
+    expect(out).toContain('notifications · implement')
+    expect(out).toContain('subagents · implement')
+  })
+  test('the net takes the classifier\'s cost off the saving', () => {
+    const out = report(records)
+    expect(out).toContain('30 calls on 30 turns')
+    expect(out).toContain('Effort Pilot pays for itself')
+    expect(out).toContain('faster')
+    const costly = records.map(r => ({ ...r, cls: { ...cls, input: 80_000_000 } }))
+    expect(report(costly)).toContain('costs more than it saves')
+  })
+  test('each phase is judged on cost, model time and falling short, against high', () => {
+    const out = report(records)
+    expect(out).toContain('vs high')
+    expect(out).toContain('cost a turn')
+    expect(out).toContain('model time')
+    expect(out).toContain('fell short')
+  })
+  test('a turn the person says fell short counts against its arm', () => {
+    const later = records.filter(r => r.who === undefined).map((r, i) => ({ ...r, t: 1000 + i, s: 'b', faulted: i % 2 === 1 ? true as const : undefined }))
+    expect(report(later)).toMatch(/fell short \d+%/)
+  })
+  test('turns at another own effort are left out', () => {
+    expect(report(records.map(r => ({ ...r, base: 'medium' as const })))).toContain('none comparable')
+  })
+  test('a clear saving shows its range', () => {
+    expect(report(records)).toContain('better with Effort Pilot: clear')
+  })
+  test('turns where the efforts agree are counted, not compared', () => {
+    const same = records.map(r => ({ ...r, sent: 'high' as const, chosen: 'high' as const }))
+    expect(report(same)).toContain('none comparable')
+    expect(report(same)).toContain('net: not known yet')
+  })
+  test('turns marked as a test are left out', () => {
+    const out = report([...records, ...records.map(r => ({ ...r, test: true as const }))])
+    expect(out).toContain('30 turns over')
+    expect(out).toContain('30 test or failed turns left out')
+  })
+  test('the range is wide when turns vary', () => {
+    const noisy = records.map((r, i) => ({ ...r, out: (i % 3) * 5000 + 100 }))
+    expect(report(noisy)).toContain('not clear yet')
+  })
+  test('no net until a phase has 5+ turns on each arm', () => {
+    expect(report(records.slice(0, 3))).toContain('net: not known yet')
+  })
+})
+
+describe('settings', () => {
+  // The manifest's defaults, as /config stores them.
+  const manifest = { planEffort: 'xhigh', analyzeEffort: 'high', buildEffort: 'medium', hardBuildEffort: 'high', talkEffort: 'low', managedModels: 'opus,fable', headless: false, measure: false, controlShare: 30 }
+  test('the defaults are the table: plan xhigh, analyze high, build medium, hard build high, talk low', () => {
+    expect(configFrom(manifest)).toEqual(DEFAULTS)
+    expect(configFrom({})).toEqual(DEFAULTS)
+    const c = configFrom(manifest)
+    expect(effortFor('plan', false, false, c)).toBe('xhigh')
+    expect(effortFor('analyze', false, false, c)).toBe('high')
+    expect(effortFor('implement', false, false, c)).toBe('medium')
+    expect(effortFor('fix', true, false, c)).toBe('high')
+    expect(effortFor('chat', false, false, c)).toBe('low')
+    expect(effortFor('trivial', false, false, c)).toBe('low')
+    expect(effortFor('chat', false, true, c)).toBe('xhigh')
+  })
+  test('a value outside the levels falls back to its default', () => {
+    expect(configFrom({ planEffort: 'huge', buildEffort: 3 }).plan).toBe('xhigh')
+    expect(configFrom({ planEffort: 'huge', buildEffort: 3 }).build).toBe('medium')
+  })
+  test('a custom table moves every rule that reads it', () => {
+    const c = configFrom({ ...manifest, planEffort: 'max', buildEffort: 'high', hardBuildEffort: 'xhigh', talkEffort: 'medium', analyzeEffort: 'xhigh' })
+    expect(effortFor('plan', false, false, c)).toBe('max')
+    expect(effortFor('implement', false, false, c)).toBe('high')
+    expect(effortFor('fix', true, false, c)).toBe('xhigh')
+    expect(effortFor('chat', false, false, c)).toBe('medium')
+    expect(effortFor('analyze', false, false, c)).toBe('xhigh')
+    expect(effortFor('chat', false, true, c)).toBe('max')
+    expect(parse('{"phase":"implement","hard":false,"continues":false,"why":"add a button"}', c)?.effort).toBe('high')
+    expect(afterPlan('p', null, c).route.effort).toBe('high')
+    expect(afterPlan('p', null, c).route.why).toContain('planned at max')
+    expect(carry(task('plan', 'max'), route('implement', 'high', { continues: true }), 'go', c).route.effort).toBe('high')
+    expect(forAgent(route('trivial', 'medium'), c).effort).toBe('high')
+  })
+  test('the effort asked for in words still stands over a custom table', () => {
+    const c = configFrom({ buildEffort: 'high' })
+    expect(afterPlan('p', { ...task('plan', 'xhigh'), build: 'low' }, c).route.effort).toBe('low')
+    expect(parse('{"phase":"implement","hard":false,"asked":"low","why":"q"}', c)?.effort).toBe('low')
+  })
+  test('managed models: words matched case-insensitively in the model name', () => {
+    expect(managed('claude-opus-5-5')).toBe(true)
+    expect(managed('Claude-Fable')).toBe(true)
+    expect(managed('claude-sonnet-4-5')).toBe(false)
+    expect(managed(null)).toBe(false)
+    const c = configFrom({ managedModels: ' Sonnet , HAIKU ,' })
+    expect(c.models).toEqual(['sonnet', 'haiku'])
+    expect(managed('claude-sonnet-4-5', c)).toBe(true)
+    expect(managed('claude-opus-5-5', c)).toBe(false)
+    expect(managed('claude-opus-5-5', configFrom({ managedModels: '' }))).toBe(false)
+  })
+})
+
+describe('turn records', () => {
+  const good = JSON.stringify({ t: 1, s: 'a', arm: 'auto', phase: 'implement', hard: false, chosen: 'medium', base: 'high', sent: 'medium', model: 'claude-opus-5-5', steps: 2, out: 10, input: 1, cacheRead: 0, cacheWrite: 0, ms: 5, reason: 'answer' })
+  test('a corrupt line is skipped, the rest read', () => {
+    const text = `${good}\n{"t":2,"s":"a","arm":"au\nnot json\n[1,2]\n\n${good}\n`
+    expect(parseRecords(text).length).toBe(2)
+  })
+  test('a line without what a turn is compared by is skipped; missing counts read as 0', () => {
+    expect(parseRecords('{"t":1,"s":"a","arm":"auto"}').length).toBe(0)
+    const [r] = parseRecords('{"t":1,"s":"a","arm":"control","phase":"chat","hard":false,"chosen":"low","base":"high","sent":"high","reason":"answer"}')
+    expect(r?.out).toBe(0)
+    expect(r?.model).toBe('')
+    expect(report(parseRecords(good))).toContain('1 turns over')
+  })
+})

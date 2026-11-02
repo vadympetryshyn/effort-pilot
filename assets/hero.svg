@@ -1,0 +1,40 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="900" height="250" viewBox="0 0 900 250" role="img" aria-label="Effort Pilot sets the effort for each turn: plan at xhigh, build at medium, a quick question at low">
+  <style>
+    .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+    .you { fill: #e6e6e6; font-size: 17px; }
+    .dim { fill: #8a8f98; font-size: 14px; }
+    .brand { fill: #d97757; font-size: 16px; font-weight: 700; }
+    .old { fill: #6b7079; font-size: 16px; }
+    .now { font-size: 16px; font-weight: 700; }
+    .xhigh { fill: #c4a7ff; } .medium { fill: #7cc4ff; } .low { fill: #7ee2a8; }
+    .f { opacity: 0; animation: show 9s infinite backwards; }
+    .f3 { opacity: 1; }
+    .f2 { animation-delay: 3s; } .f3 { animation-delay: 6s; }
+    @keyframes show { 0% { opacity: 0; } 3% { opacity: 1; } 30% { opacity: 1; } 33% { opacity: 0; } 100% { opacity: 0; } }
+    @media (prefers-reduced-motion: reduce) { .f { animation: none; } .f3 { opacity: 1; } }
+  </style>
+  <rect x="1" y="1" width="898" height="248" rx="14" fill="#16181d" stroke="#2c3038"/>
+  <circle cx="26" cy="24" r="6" fill="#ff5f57"/><circle cx="46" cy="24" r="6" fill="#febc2e"/><circle cx="66" cy="24" r="6" fill="#28c840"/>
+  <text x="450" y="29" text-anchor="middle" class="mono dim">claude · Opus</text>
+  <line x1="1" y1="46" x2="899" y2="46" stroke="#2c3038"/>
+
+<g><rect x="660" y="176" width="26" height="24" rx="4" fill="#2a2e36"/><rect x="700" y="156" width="26" height="44" rx="4" fill="#2a2e36"/><rect x="740" y="136" width="26" height="64" rx="4" fill="#2a2e36"/><rect x="780" y="116" width="26" height="84" rx="4" fill="#2a2e36"/><rect x="820" y="96" width="26" height="104" rx="4" fill="#2a2e36"/><text x="673" y="220" text-anchor="middle" class="mono dim" style="font-size:11px">low</text><text x="713" y="220" text-anchor="middle" class="mono dim" style="font-size:11px">medium</text><text x="753" y="220" text-anchor="middle" class="mono dim" style="font-size:11px">high</text><text x="793" y="220" text-anchor="middle" class="mono dim" style="font-size:11px">xhigh</text><text x="833" y="220" text-anchor="middle" class="mono dim" style="font-size:11px">max</text></g>
+  <g class="f f1 mono">
+    <text x="32" y="98" class="you">&gt; let's plan a cache layer for the API</text>
+    <text x="32" y="170"><tspan class="brand">⏵ effort</tspan><tspan dx="12" class="now xhigh">xhigh plan</tspan></text>
+    <rect x="780" y="116" width="26" height="84" rx="4" fill="#c4a7ff"/>
+    <text x="32" y="200" class="dim">asks for a plan · classified in 1.2s</text>
+  </g>
+  <g class="f f2 mono">
+    <text x="32" y="98" class="you">&gt; looks good, build it</text>
+    <text x="32" y="170"><tspan class="brand">⏵ effort</tspan><tspan dx="12" class="old">xhigh plan →</tspan><tspan dx="8" class="now medium">medium implement</tspan></text>
+    <rect x="700" y="156" width="26" height="44" rx="4" fill="#7cc4ff"/>
+    <text x="32" y="200" class="dim">carrying out the plan: the hard thinking is done</text>
+  </g>
+  <g class="f f3 mono">
+    <text x="32" y="98" class="you">&gt; what does TTL mean here?</text>
+    <text x="32" y="170"><tspan class="brand">⏵ effort</tspan><tspan dx="12" class="old">xhigh plan → medium implement →</tspan><tspan dx="8" class="now low">low chat</tspan></text>
+    <rect x="660" y="176" width="26" height="24" rx="4" fill="#7ee2a8"/>
+    <text x="32" y="200" class="dim">a question: answering it builds nothing</text>
+  </g>
+</svg>

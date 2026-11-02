@@ -1,0 +1,17 @@
+name: Wrong effort for a turn
+description: A message got an effort that did not fit the work
+labels: [routing]
+body:
+  - type: textarea
+    attributes:
+      label: The message
+      description: Rewrite anything private; the gist is enough.
+    validations: { required: true }
+  - type: textarea
+    attributes:
+      label: What /effort-pilot classify showed
+      render: text
+  - type: input
+    attributes:
+      label: Expected effort, and why
+    validations: { required: true }

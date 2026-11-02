@@ -1,0 +1,15 @@
+name: Bug
+description: Something does not work
+labels: [bug]
+body:
+  - type: textarea
+    attributes:
+      label: What happened, and what you expected
+    validations: { required: true }
+  - type: input
+    attributes:
+      label: Claude Code version (claude --version) and model
+    validations: { required: true }
+  - type: textarea
+    attributes:
+      label: Steps to reproduce
