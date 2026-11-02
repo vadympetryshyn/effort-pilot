@@ -1,40 +1,40 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="900" height="250" viewBox="0 0 900 250" role="img" aria-label="Effort Pilot sets the effort for each turn: plan at xhigh, build at medium, a quick question at low">
   <style>
     .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
-    .you { fill: #e6e6e6; font-size: 17px; }
-    .dim { fill: #8a8f98; font-size: 14px; }
+    .you { fill: #1f2328; font-size: 17px; }
+    .dim { fill: #656d76; font-size: 14px; }
     .brand { fill: #d97757; font-size: 16px; font-weight: 700; }
-    .old { fill: #6b7079; font-size: 16px; }
+    .old { fill: #8c959f; font-size: 16px; }
     .now { font-size: 16px; font-weight: 700; }
-    .xhigh { fill: #c4a7ff; } .medium { fill: #7cc4ff; } .low { fill: #7ee2a8; }
+    .xhigh { fill: #8250df; } .medium { fill: #0969da; } .low { fill: #1a7f37; }
     .f { opacity: 0; animation: show 9s infinite backwards; }
     .f3 { opacity: 1; }
     .f2 { animation-delay: 3s; } .f3 { animation-delay: 6s; }
     @keyframes show { 0% { opacity: 0; } 3% { opacity: 1; } 30% { opacity: 1; } 33% { opacity: 0; } 100% { opacity: 0; } }
     @media (prefers-reduced-motion: reduce) { .f { animation: none; } .f3 { opacity: 1; } }
   </style>
-  <rect x="1" y="1" width="898" height="248" rx="14" fill="#16181d" stroke="#2c3038"/>
+  <rect x="1" y="1" width="898" height="248" rx="14" fill="#ffffff" stroke="#d0d7de"/>
   <circle cx="26" cy="24" r="6" fill="#ff5f57"/><circle cx="46" cy="24" r="6" fill="#febc2e"/><circle cx="66" cy="24" r="6" fill="#28c840"/>
-  <text x="450" y="29" text-anchor="middle" class="mono dim">claude · Opus</text>
-  <line x1="1" y1="46" x2="899" y2="46" stroke="#2c3038"/>
+  <g transform="translate(398 14) scale(0.83)"><path fill="#D97757" d="m4.7144 15.9555 4.7174-2.6471.079-.2307-.079-.1275h-.2307l-.7893-.0486-2.6956-.0729-2.3375-.0971-2.2646-.1214-.5707-.1215-.5343-.7042.0546-.3522.4797-.3218.686.0608 1.5179.1032 2.2767.1578 1.6514.0972 2.4468.255h.3886l.0546-.1579-.1336-.0971-.1032-.0972L6.973 9.8356l-2.55-1.6879-1.3356-.9714-.7225-.4918-.3643-.4614-.1578-1.0078.6557-.7225.8803.0607.2246.0607.8925.686 1.9064 1.4754 2.4893 1.8336.3643.3035.1457-.1032.0182-.0728-.164-.2733-1.3539-2.4467-1.445-2.4893-.6435-1.032-.17-.6194c-.0607-.255-.1032-.4674-.1032-.7285L6.287.1335 6.6997 0l.9957.1336.419.3642.6192 1.4147 1.0018 2.2282 1.5543 3.0296.4553.8985.2429.8318.091.255h.1579v-.1457l.1275-1.706.2368-2.0947.2307-2.6957.0789-.7589.3764-.9107.7468-.4918.5828.2793.4797.686-.0668.4433-.2853 1.8517-.5586 2.9021-.3643 1.9429h.2125l.2429-.2429.9835-1.3053 1.6514-2.0643.7286-.8196.85-.9046.5464-.4311h1.0321l.759 1.1293-.34 1.1657-1.0625 1.3478-.8804 1.1414-1.2628 1.7-.7893 1.36.0729.1093.1882-.0183 2.8535-.607 1.5421-.2794 1.8396-.3157.8318.3886.091.3946-.3278.8075-1.967.4857-2.3072.4614-3.4364.8136-.0425.0304.0486.0607 1.5482.1457.6618.0364h1.621l3.0175.2247.7892.522.4736.6376-.079.4857-1.2142.6193-1.6393-.3886-3.825-.9107-1.3113-.3279h-.1822v.1093l1.0929 1.0686 2.0035 1.8092 2.5075 2.3314.1275.5768-.3218.4554-.34-.0486-2.2039-1.6575-.85-.7468-1.9246-1.621h-.1275v.17l.4432.6496 2.3436 3.5214.1214 1.0807-.17.3521-.6071.2125-.6679-.1214-1.3721-1.9246L14.38 17.959l-1.1414-1.9428-.1397.079-.674 7.2552-.3156.3703-.7286.2793-.6071-.4614-.3218-.7468.3218-1.4753.3886-1.9246.3157-1.53.2853-1.9004.17-.6314-.0121-.0425-.1397.0182-1.4328 1.9672-2.1796 2.9446-1.7243 1.8456-.4128.164-.7164-.3704.0667-.6618.4008-.5889 2.386-3.0357 1.4389-1.882.929-1.0868-.0062-.1579h-.0546l-6.3385 4.1164-1.1293.1457-.4857-.4554.0608-.7467.2307-.2429 1.9064-1.3114Z"/></g><text x="424" y="29" class="mono dim">Claude Code · Opus</text>
+  <line x1="1" y1="46" x2="899" y2="46" stroke="#eaeef2"/>
 
-<g><rect x="660" y="176" width="26" height="24" rx="4" fill="#2a2e36"/><rect x="700" y="156" width="26" height="44" rx="4" fill="#2a2e36"/><rect x="740" y="136" width="26" height="64" rx="4" fill="#2a2e36"/><rect x="780" y="116" width="26" height="84" rx="4" fill="#2a2e36"/><rect x="820" y="96" width="26" height="104" rx="4" fill="#2a2e36"/><text x="673" y="220" text-anchor="middle" class="mono dim" style="font-size:11px">low</text><text x="713" y="220" text-anchor="middle" class="mono dim" style="font-size:11px">medium</text><text x="753" y="220" text-anchor="middle" class="mono dim" style="font-size:11px">high</text><text x="793" y="220" text-anchor="middle" class="mono dim" style="font-size:11px">xhigh</text><text x="833" y="220" text-anchor="middle" class="mono dim" style="font-size:11px">max</text></g>
+<g><rect x="660" y="176" width="26" height="24" rx="4" fill="#eaeef2"/><rect x="700" y="156" width="26" height="44" rx="4" fill="#eaeef2"/><rect x="740" y="136" width="26" height="64" rx="4" fill="#eaeef2"/><rect x="780" y="116" width="26" height="84" rx="4" fill="#eaeef2"/><rect x="820" y="96" width="26" height="104" rx="4" fill="#eaeef2"/><text x="673" y="220" text-anchor="middle" class="mono dim" style="font-size:11px">low</text><text x="713" y="220" text-anchor="middle" class="mono dim" style="font-size:11px">medium</text><text x="753" y="220" text-anchor="middle" class="mono dim" style="font-size:11px">high</text><text x="793" y="220" text-anchor="middle" class="mono dim" style="font-size:11px">xhigh</text><text x="833" y="220" text-anchor="middle" class="mono dim" style="font-size:11px">max</text></g>
   <g class="f f1 mono">
     <text x="32" y="98" class="you">&gt; let's plan a cache layer for the API</text>
     <text x="32" y="170"><tspan class="brand">⏵ effort</tspan><tspan dx="12" class="now xhigh">xhigh plan</tspan></text>
-    <rect x="780" y="116" width="26" height="84" rx="4" fill="#c4a7ff"/>
+    <rect x="780" y="116" width="26" height="84" rx="4" fill="#8250df"/>
     <text x="32" y="200" class="dim">asks for a plan · classified in 1.2s</text>
   </g>
   <g class="f f2 mono">
     <text x="32" y="98" class="you">&gt; looks good, build it</text>
     <text x="32" y="170"><tspan class="brand">⏵ effort</tspan><tspan dx="12" class="old">xhigh plan →</tspan><tspan dx="8" class="now medium">medium implement</tspan></text>
-    <rect x="700" y="156" width="26" height="44" rx="4" fill="#7cc4ff"/>
+    <rect x="700" y="156" width="26" height="44" rx="4" fill="#0969da"/>
     <text x="32" y="200" class="dim">carrying out the plan: the hard thinking is done</text>
   </g>
   <g class="f f3 mono">
     <text x="32" y="98" class="you">&gt; what does TTL mean here?</text>
     <text x="32" y="170"><tspan class="brand">⏵ effort</tspan><tspan dx="12" class="old">xhigh plan → medium implement →</tspan><tspan dx="8" class="now low">low chat</tspan></text>
-    <rect x="660" y="176" width="26" height="24" rx="4" fill="#7ee2a8"/>
+    <rect x="660" y="176" width="26" height="24" rx="4" fill="#1a7f37"/>
     <text x="32" y="200" class="dim">a question: answering it builds nothing</text>
   </g>
 </svg>

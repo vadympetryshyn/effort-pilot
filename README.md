@@ -1,6 +1,6 @@
 # Effort Pilot
 
-### Spend 20–50% fewer tokens in <img src="assets/claude.svg" height="22" alt=""> Claude Code — without thinking less where it matters.
+### Spend 20–50% fewer tokens in <img src="assets/claude-inline.svg" height="30" alt=""> Claude Code — without thinking less where it matters.
 
 Effort Pilot switches the reasoning effort for every turn, automatically: plans get `xhigh`, building gets `medium`, a quick question gets `low`. You stop paying for deep thinking where none is needed, and get more of it where it counts.
 
