@@ -2,7 +2,7 @@
 
 ### Spend 20–50% fewer tokens in <img src="assets/claude-inline.svg" height="30" alt=""> Claude Code — without thinking less where it matters.
 
-Effort Pilot switches the reasoning effort for every turn, automatically: plans get `xhigh`, building gets `medium`, a quick question gets `low`. You stop paying for deep thinking where none is needed, and get more of it where it counts.
+Effort Pilot switches the reasoning effort for every turn, automatically: plans get `xhigh`, building gets `medium`, questions and trivial tasks — a git commit, a push, a rename — get `low`. You stop paying for deep thinking where none is needed, and get more of it where it counts.
 
 [![version](https://img.shields.io/github/v/release/vadympetryshyn/effort-pilot?label=version&color=d97757)](https://github.com/vadympetryshyn/effort-pilot/releases)
 [![license](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
@@ -11,7 +11,7 @@ Effort Pilot switches the reasoning effort for every turn, automatically: plans 
 
 ## Why
 
-<img src="assets/savings.svg?v=2" alt="Effort Pilot vs. always-on high: about 35% fewer tokens, 1.5x faster replies, 20% fewer turns that fall short" width="820">
+<img src="assets/savings.svg?v=3" alt="Effort Pilot vs. always-on high: about 35% fewer tokens, 1.5x faster replies, 20% fewer turns that fall short" width="820">
 
 <sub>≈ Approximate, from the author's own sessions; savings range from ~20% on hard work to ~50% and more on everyday turns. Every setup differs: measure yours with `/effort-pilot report`.</sub>
 
@@ -33,7 +33,7 @@ Before each turn a small, fast model (Haiku, ≈ $0.0002 a turn) reads your mess
 | ask a hard question, investigate a bug | analyze | `high` |
 | ask to build or fix something | implement / fix | `medium` (`high` when hard) |
 | approve a plan | implement | `medium` — the thinking went into the plan |
-| ask a quick question, chat, a tiny edit | chat / trivial | `low` |
+| ask a quick question, commit, push, run a command, a tiny edit | chat / trivial | `low` |
 
 A band above the prompt shows the effort now, how it got there and why. Follow-ups keep the effort of the work they belong to; a side question doesn't drag it down.
 

@@ -31,5 +31,5 @@
   <rect x="140" y="340" width="115" height="26" rx="13" fill="#ede4ff"/><text x="152" y="358" class="p" style="fill:#6e40c9">plan → <tspan class="mono">xhigh</tspan></text>
   <rect x="265.2" y="340" width="161" height="26" rx="13" fill="#fff1e5"/><text x="277.2" y="358" class="p" style="fill:#bc4c00">investigate → <tspan class="mono">high</tspan></text>
   <rect x="436.0" y="340" width="130" height="26" rx="13" fill="#ddf4ff"/><text x="448.0" y="358" class="p" style="fill:#0969da">build → <tspan class="mono">medium</tspan></text>
-  <rect x="576.4" y="340" width="130" height="26" rx="13" fill="#dafbe1"/><text x="588.4" y="358" class="p" style="fill:#1a7f37">question → <tspan class="mono">low</tspan></text>
+  <rect x="576.4" y="340" width="168" height="26" rx="13" fill="#dafbe1"/><text x="588.4" y="358" class="p" style="fill:#1a7f37">question, git → <tspan class="mono">low</tspan></text>
 </svg>
