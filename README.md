@@ -7,11 +7,11 @@ Effort Pilot switches the reasoning effort for every turn, automatically: plans 
 [![version](https://img.shields.io/github/v/release/vadympetryshyn/effort-pilot?label=version&color=d97757)](https://github.com/vadympetryshyn/effort-pilot/releases)
 [![license](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
 
-<img src="assets/hero.svg" alt="Effort Pilot switching effort: xhigh for a plan, medium to build it, low for a question" width="820">
+<img src="assets/hero.svg?v=2" alt="Effort Pilot switching effort: xhigh for a plan, medium to build it, low for a question" width="820">
 
 ## Why
 
-<img src="assets/savings.svg" alt="Effort Pilot vs. always-on high: about 35% fewer tokens, 1.5x faster replies, 20% fewer turns that fall short" width="820">
+<img src="assets/savings.svg?v=2" alt="Effort Pilot vs. always-on high: about 35% fewer tokens, 1.5x faster replies, 20% fewer turns that fall short" width="820">
 
 <sub>≈ Approximate, from the author's own sessions; savings range from ~20% on hard work to ~50% and more on everyday turns. Every setup differs: measure yours with `/effort-pilot report`.</sub>
 
