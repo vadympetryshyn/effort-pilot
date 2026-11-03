@@ -5,6 +5,7 @@
 Effort Pilot switches the reasoning effort for every turn, automatically: plans get `xhigh`, building gets `medium`, questions and trivial tasks — a git commit, a push, a rename — get `low`. You stop paying for deep thinking where none is needed — responses come **~1.5× faster** — and get more of it where it counts.
 
 [![version](https://img.shields.io/github/v/release/vadympetryshyn/effort-pilot?label=version&color=d97757)](https://github.com/vadympetryshyn/effort-pilot/releases)
+[![CI](https://github.com/vadympetryshyn/effort-pilot/actions/workflows/ci.yml/badge.svg)](https://github.com/vadympetryshyn/effort-pilot/actions/workflows/ci.yml)
 [![license](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
 
 <img src="assets/hero-4.svg" alt="Effort Pilot switching effort: xhigh to plan, high to investigate, medium to build, low to commit and push" width="820">
