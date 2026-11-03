@@ -6,6 +6,7 @@ import {
   afterPlan, briefPrompt, unasked, carry, configFrom, DEFAULTS, EFFORTS, forAgent, forNotice, managed as managedBy, midTurn, parse,
   parseRecords, prompt, recentOf, report, seedPrompt, SHORT, SYSTEM,
 } from './route'
+import { bySlot, dataDir, fresh, KEEP_DAYS, legacyDir, pack, slotFile, stale } from './store'
 
 // The settings (userConfig), read once per load: a change in /config reloads the module with the new values.
 let config: Config = DEFAULTS
@@ -139,32 +140,83 @@ async function asks($: EngineInterface, said: Route | null) {
 }
 
 // Measuring: a share of turns is left at the person's own effort (control), picked at random per turn; effort costs
-// no cache on these models, so mixing them in one session is fair. Every turn is kept, one file a session.
+// no cache on these models, so mixing them in one session is fair. Every turn is kept, in the plugin's data folder
+// (store.ts: one file a day, KEEP_DAYS days kept, removed with the plugin).
 const share = () => (measuring ? controlShare : 0)
-/** Where turn records go; null with no home folder known, and then nothing is written. */
+/** Where turn records go; null when neither the plugin's root nor the home folder places it, and then nothing is written. */
 async function dir($: EngineInterface) {
-  const home = await $.env.get('HOME')
-  return home ? `${home}/.claude/effort-pilot/turns` : null
+  const d = dataDir($.plugin.root, $.plugin.name, await $.env.get('HOME'))
+  return d ? `${d}/turns` : null
 }
-// The engine's file system has no append: a session's file is read and written whole. One file a session keeps it
-// small (a record is about a kilobyte), well under the 4 MiB a read may take.
-async function keep($: EngineInterface, r: TurnRecord) {
-  if (!measuring) return
-  const d = await dir($)
-  if (!d) return
-  const path = `${d}/${r.s}.jsonl`
-  const before = (await $.fs.exists(path)) ? await $.fs.read(path) : ''
-  await $.fs.write(path, `${before}${JSON.stringify(r)}\n`)
+const legacy = async ($: EngineInterface) => legacyDir(await $.env.get('HOME'))
+/** The record files of a folder, as listed; none when it does not exist. */
+async function files($: EngineInterface, d: string | null) {
+  if (!d || !(await $.fs.exists(d))) return []
+  return (await $.fs.list(d)).filter(f => f.kind === 'file' && f.name.endsWith('.jsonl'))
+}
+const readOr = ($: EngineInterface, path: string) => $.fs.read(path).then(t => (typeof t === 'string' ? t : ''), () => null)
+
+// Records a 1.0 install kept, one file a session outside the data folder, move in once a load: those within
+// KEEP_DAYS into their day files, then their files are emptied (the engine cannot delete). One it cannot read stays.
+let moved = false
+async function migrate($: EngineInterface, d: string) {
+  if (moved) return
+  moved = true
+  const old = await legacy($)
+  const now = await $.clock.now()
+  for (const f of await files($, old)) {
+    if (f.size === 0) continue
+    const path = `${old}/${f.name}`
+    const text = await readOr($, path)
+    if (text === null) continue
+    for (const [slot, lines] of bySlot(text, now)) {
+      const target = `${d}/${slot}`
+      const before = (await $.fs.exists(target)) ? ((await readOr($, target)) ?? '') : ''
+      await $.fs.write(target, pack(`${before}${lines}`))
+    }
+    await $.fs.write(path, '')
+  }
+}
+
+// The engine's file system has no append: a day's file is read and written whole. Writes of one load go one at a time.
+let writing: Promise<unknown> = Promise.resolve()
+function serial<T>(work: () => Promise<T>): Promise<T> {
+  const run = writing.then(work)
+  writing = run.catch(() => undefined)
+  return run
+}
+function keep($: EngineInterface, r: TurnRecord): Promise<void> {
+  if (!measuring) return Promise.resolve()
+  return serial(async () => {
+    const d = await dir($)
+    if (!d) return
+    await migrate($, d)
+    const path = `${d}/${slotFile(r.t)}`
+    const before = (await $.fs.exists(path)) ? ((await readOr($, path)) ?? '') : ''
+    await $.fs.write(path, pack(`${before}${JSON.stringify(r)}\n`))
+    for (const f of await files($, d)) if (`${d}/${f.name}` !== path && stale(f, r.t)) await $.fs.write(`${d}/${f.name}`, '')
+  })
 }
 async function records($: EngineInterface): Promise<TurnRecord[]> {
   const d = await dir($)
-  if (!d || !(await $.fs.exists(d))) return []
+  if (!d) return []
+  await serial(() => migrate($, d))
+  const now = await $.clock.now()
   const all: TurnRecord[] = []
-  for (const f of await $.fs.list(d)) {
-    if (!f.name.endsWith('.jsonl')) continue
-    all.push(...parseRecords(await $.fs.read(`${d}/${f.name}`)))
-  }
+  for (const f of await files($, d)) all.push(...parseRecords((await readOr($, `${d}/${f.name}`)) ?? '').filter(r => fresh(r.t, now)))
   return all
+}
+/** Empties every records file, the data folder's and a 1.0 install's: the number of turns it held. */
+async function reset($: EngineInterface) {
+  let cleared = 0
+  for (const d of [await dir($), await legacy($)]) {
+    for (const f of await files($, d)) {
+      if (f.size === 0) continue
+      cleared += parseRecords((await readOr($, `${d}/${f.name}`)) ?? '').length
+      await $.fs.write(`${d}/${f.name}`, '')
+    }
+  }
+  return cleared
 }
 
 // Who may be routed: what a person typed, and the notifications that start a turn of their own (a background task
@@ -360,7 +412,7 @@ export const register: Register = (on, options) => {
     interactive = e.isInteractive
     await $.command.register({
       name: 'effort-pilot',
-      description: 'Effort Pilot: on | shadow | off | stats | report | classify <text>',
+      description: 'Effort Pilot: on | shadow | off | stats | report | reset | classify <text>',
     })
     const name = (await $.session.model()) ?? ''
     await update($, model, () => name)
@@ -382,7 +434,10 @@ export const register: Register = (on, options) => {
     } else if (verb === 'report') {
       if (!measuring) return { text: 'measuring is off: no control turns, no turn records. Turn it on in /config: effort-pilot · measure.' }
       const d = await dir($)
-      return { text: `${report(await records($))}\n\nrecords: ${d ?? 'none (no home folder known)'}` }
+      return { text: `${report(await records($))}\n\nrecords: ${d ?? 'none (no home folder known)'} (the last ${KEEP_DAYS} days)` }
+    } else if (verb === 'reset') {
+      const n = await serial(() => reset($))
+      return { text: n ? `Effort Pilot: cleared ${n} turn records` : 'Effort Pilot: no turn records to clear' }
     } else if (verb === 'stats') {
       const t = await read($, tally)
       const rows = EFFORTS.filter(l => t[l]).map(l => `${l}: ${t[l]?.steps} requests, ${t[l]?.out} output tokens`)

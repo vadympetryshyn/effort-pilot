@@ -77,6 +77,7 @@ A band above the prompt shows the effort now, how it got there and why. Follow-u
 | `/effort-pilot stats` | this session's turns and efforts |
 | `/effort-pilot classify <text>` | what it would pick for a message |
 | `/effort-pilot report` | cost, speed and quality vs. `high` (needs **measure**) |
+| `/effort-pilot reset` | delete the turn records **measure** kept |
 
 ## Settings
 
@@ -96,7 +97,7 @@ All in `/config` → **effort-pilot**.
 
 ## Measure it yourself
 
-Turn on **measure**. A share of turns where Effort Pilot would pick something other than `high` is left at `high` (control turns). `/effort-pilot report` then compares, per phase, **cost per turn**, **model time** and **turns that fell short** (aborted, or your next message says it was wrong), each with a 90% range, and nets out what the classifier itself cost. Records stay in `~/.claude/effort-pilot/turns/`.
+Turn on **measure**. A share of turns where Effort Pilot would pick something other than `high` is left at `high` (control turns). `/effort-pilot report` then compares, per phase, **cost per turn**, **model time** and **turns that fell short** (aborted, or your next message says it was wrong), each with a 90% range, and nets out what the classifier itself cost. Records (turn statistics, no prompt text) live in the plugin's data folder, `~/.claude/plugins/data/effort-pilot-effort-pilot/turns/`, one file a day, and are kept for 90 days. `/effort-pilot reset` deletes them; uninstalling the plugin removes them too (unless you uninstall with `--keep-data`).
 
 ## Contributing
 
