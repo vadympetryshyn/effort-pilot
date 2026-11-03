@@ -12,7 +12,10 @@ Effort Pilot switches the reasoning effort for every turn, automatically: plans 
 
 <img src="assets/hero-4.svg" alt="Effort Pilot switching effort: xhigh to plan, high to investigate, medium to build, low to commit and push" width="820">
 
-## Why
+## What you get
+
+Same work, compared with leaving effort on `high` all the time: fewer tokens burned, faster responses, and fewer turns
+you have to redo, because hard work gets more thinking, not less.
 
 <img src="assets/why-2.svg" alt="Effort Pilot vs. always-on high: about 35% fewer tokens, 1.5x faster responses, 20% fewer turns that fall short" width="820">
 
