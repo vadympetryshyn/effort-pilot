@@ -38,7 +38,8 @@ claude plugin install effort-pilot --marketplace vadympetryshyn/effort-pilot
 ```
 
 It is on as soon as it loads: from your next message, the line above the prompt shows `⏵ effort` with the effort it
-picked and why. Nothing to configure — every setting has a default. Works on Opus and Fable (Sonnet and Haiku are left to you). Needs a recent
+picked and why. Nothing to configure — every setting has a default (the terminal install still says its options are
+"not yet set": Claude Code counts any option you have not saved yourself, and the defaults apply). Works on Opus and Fable (Sonnet and Haiku are left to you). Needs a recent
 Claude Code (tested on 2.1.316).
 
 **Update:** `claude plugin marketplace update effort-pilot && claude plugin update effort-pilot@effort-pilot`, then
