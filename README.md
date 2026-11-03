@@ -7,6 +7,8 @@ Effort Pilot switches the reasoning effort for every turn, automatically: plans 
 [![version](https://img.shields.io/github/v/release/vadympetryshyn/effort-pilot?label=version&color=d97757)](https://github.com/vadympetryshyn/effort-pilot/releases)
 [![CI](https://github.com/vadympetryshyn/effort-pilot/actions/workflows/ci.yml/badge.svg)](https://github.com/vadympetryshyn/effort-pilot/actions/workflows/ci.yml)
 [![license](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
+[![stars](https://img.shields.io/github/stars/vadympetryshyn/effort-pilot?style=flat&color=d97757)](https://github.com/vadympetryshyn/effort-pilot/stargazers)
+[![last commit](https://img.shields.io/github/last-commit/vadympetryshyn/effort-pilot)](https://github.com/vadympetryshyn/effort-pilot/commits/main)
 
 <img src="assets/hero-4.svg" alt="Effort Pilot switching effort: xhigh to plan, high to investigate, medium to build, low to commit and push" width="820">
 
