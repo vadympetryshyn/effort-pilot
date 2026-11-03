@@ -1,4 +1,4 @@
-# Effort Pilot
+# What is Effort Pilot?
 
 ### Spend 20–50% fewer tokens in <img src="assets/claude-inline.svg" height="30" alt=""> Claude Code — without thinking less where it matters.
 
@@ -18,11 +18,26 @@ Effort Pilot switches the reasoning effort for every turn, automatically: plans 
 
 ## Install
 
+In Claude Code:
+
 ```
-/plugin install effort-pilot --marketplace vadympetryshyn/effort-pilot
+/plugin marketplace add vadympetryshyn/effort-pilot
+/plugin install effort-pilot@effort-pilot
+/reload-plugins
 ```
 
-That's it. Works on Opus and Fable (Sonnet and Haiku are left to you). Needs a recent Claude Code (tested on 2.1.316).
+Or from your terminal, in one line (then start a new session):
+
+```sh
+claude plugin install effort-pilot --marketplace vadympetryshyn/effort-pilot
+```
+
+It is on as soon as it loads: from your next message, the line above the prompt shows `⏵ effort` with the effort it
+picked and why. Nothing to configure — every setting has a default. Works on Opus and Fable (Sonnet and Haiku are left to you). Needs a recent
+Claude Code (tested on 2.1.316).
+
+**Update:** `claude plugin marketplace update effort-pilot && claude plugin update effort-pilot@effort-pilot`, then
+restart. **Pause:** `/effort-pilot off`. **Remove:** `/plugin uninstall effort-pilot@effort-pilot`.
 
 ## How it works
 
@@ -79,7 +94,11 @@ Turn on **measure**. A share of turns where Effort Pilot would pick something ot
 
 ## Contributing
 
-Issues and PRs welcome — see [CONTRIBUTING.md](CONTRIBUTING.md).
+Issues and PRs welcome — see [CONTRIBUTING.md](CONTRIBUTING.md). Questions and ideas go to
+[Discussions](https://github.com/vadympetryshyn/effort-pilot/discussions); a turn that got the wrong effort is the most
+useful [issue](https://github.com/vadympetryshyn/effort-pilot/issues/new?template=misrouted.yml).
+
+If it saves you tokens, a ⭐ helps others find it.
 
 ## License
 
