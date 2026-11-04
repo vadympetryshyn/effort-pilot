@@ -20,17 +20,32 @@ describe('effortFor', () => {
 
 describe('carry', () => {
   test('a follow-up keeps the work\'s effort', () => {
-    const r = carry(task('plan', 'xhigh'), route('chat', 'low', { continues: true }), 'why so?')
+    const r = carry(task('plan', 'xhigh'), route('trivial', 'low', { continues: true }), 'continue')
     expect(r.route.effort).toBe('xhigh')
     expect(r.route.kept).toBe(true)
+    expect(carry(task('analyze', 'high'), route('analyze', 'high', { continues: true }), 'but would the same happen with two workers?').route.effort).toBe('high')
   })
   test('a question about a build takes its own effort; the build stays the work', () => {
     const r = carry(task('implement', 'high'), route('chat', 'low', { continues: true }), 'is coral the orange one?')
     expect(r.route.effort).toBe('low')
     expect(r.task.phase).toBe('implement')
   })
-  test('a question about research keeps the research effort', () => {
-    expect(carry(task('analyze', 'high'), route('chat', 'low', { continues: true }), 'and what about X?').route.effort).toBe('high')
+  test('a question about an analysis takes its own effort; the analysis stays the work', () => {
+    const r = carry(task('analyze', 'high'), route('chat', 'low', { continues: true }), 'so in plain words, what was the cause?')
+    expect(r.route.effort).toBe('low')
+    expect(r.route.kept).toBe(undefined)
+    expect(r.task.phase).toBe('analyze')
+  })
+  test('a question about a plan takes its own effort; the plan stays the work', () => {
+    const r = carry(task('plan', 'xhigh'), route('chat', 'low', { continues: true }), 'why so?')
+    expect(r.route.effort).toBe('low')
+    expect(r.task.phase).toBe('plan')
+    expect(r.task.effort).toBe('xhigh')
+  })
+  test('a question that says the analysis fell short keeps its effort', () => {
+    const r = carry(task('analyze', 'high'), route('chat', 'low', { continues: true, faulted: true }), 'that is not the cause, is it?')
+    expect(r.route.effort).toBe('high')
+    expect(r.route.kept).toBe(true)
   })
   test('restating the last answer (translate, shorten) takes its own light effort', () => {
     const pick = parse('{"phase":"chat","hard":false,"continues":true,"restate":true,"why":"translate"}')!

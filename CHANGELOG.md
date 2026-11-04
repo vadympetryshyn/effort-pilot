@@ -2,6 +2,10 @@
 
 All notable changes. Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions: [SemVer](https://semver.org/).
 
+## [1.2.1] — 2026-11-04
+
+- A plain question about a plan or an analysis (asking what was found, to explain it again, where it stands) now runs at the talk effort instead of keeping the plan's or the analysis's. Its answer is already in that work. A follow-up that needs new reasoning (a doubt, a new case), or says the work was wrong, keeps the work's effort, as does a word to go on ("continue"). The plan or analysis stays the work under way.
+
 ## [1.2.0] — 2026-11-04
 
 - Effort Pilot stands aside where effort is one setting of the whole request, since there every switch rewrites the conversation's prompt cache: Claude 4.x and older, Fable 5 (not 5.1), sessions without an Anthropic login (Bedrock, Vertex, Foundry, a gateway), and an effort set as a number. Your own effort goes untouched, nothing is classified (no Haiku call), no control turns or records are made, and subagents keep the session's effort. The newer models with an Anthropic login (Opus 5 and 5.5, Fable 5.1) switch as before: there effort goes per message and the cache holds.

@@ -196,8 +196,11 @@ export function unasked(task: Task, config: Config = DEFAULTS): Task {
 
 /**
  * The effort a message gets, given the work under way.
- * - a follow-up to unfinished work keeps that work's effort (a question about building takes its own), unless it moves the work
- *   on from thinking (plan, analyze) to building, which the rule sets anew (after a plan: the build effort);
+ * - a follow-up to unfinished work keeps that work's effort, unless it moves the work on from thinking (plan, analyze) to
+ *   building, which the rule sets anew (after a plan: the build effort);
+ * - a question about the work (chat) takes its own effort and leaves the work under way in place: about a build, answering
+ *   it builds nothing; about a plan or an analysis, its answer is in the work so far, while one that needs new reasoning
+ *   comes as analyze and one that says the work fell short as faulted, and both keep the work's effort;
  * - a side question or a closing word takes its own effort and leaves the work under way in place;
  * - a new task, or one that needs more, takes its own effort.
  */
@@ -213,10 +216,14 @@ export function carry(task: Task | null, pick: Route, text: string, config: Conf
     return { route: { ...pick, effort: task.asked, kept: true, asked: task.asked, why: `you asked for ${task.asked}` }, task }
   }
   // A question or a word about building (implement, fix) takes its own light effort: answering it builds nothing.
-  // Questions about thinking work (plan, analyze) keep its effort: there they are part of the thinking, and research
-  // the person keeps asking about must not drop to the talk effort.
   if (pick.continues && TALK.includes(pick.phase) && BUILD.includes(task.phase)) {
     return { route: { ...pick, why: `${pick.why} (a question about the build: its own effort)` }, task }
+  }
+  // A question about thinking work (plan, analyze) takes its own effort too: its answer is already in that work. A
+  // follow-up that needs new reasoning comes as analyze, pushback on the work as faulted, and a word to go on
+  // ("continue") as trivial: those keep the work's effort below.
+  if (pick.continues && pick.phase === 'chat' && !pick.faulted && THINK.includes(task.phase)) {
+    return { route: { ...pick, why: `${pick.why} (a question about the ${task.phase}: its own effort)` }, task }
   }
   const keep = (why: string) => ({
     route: { ...pick, phase: task.phase, hard: task.hard, effort: task.effort, kept: true, why },
