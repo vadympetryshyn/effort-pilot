@@ -52,6 +52,17 @@ const acc = atom({ plugin: 'effort-pilot', key: 'acc' } as const, EMPTY, { shape
 async function planLevel($: EngineInterface): Promise<Effort> {
   return (await read($, task))?.asked ?? config.plan
 }
+/**
+ * The main loop's model, as session.start, /model or the last request set it. A session that began with no
+ * session.start (a /clear: the same process goes on under a new session id, its state empty) asks the engine once.
+ */
+async function modelOf($: EngineInterface) {
+  const known = await read($, model)
+  if (known) return known
+  const name = (await $.session.model()) ?? ''
+  if (name) await update($, model, () => name)
+  return name
+}
 /** Publish the effort the next request goes at, or null when the person's own setting stands. */
 async function publish($: EngineInterface) {
   const [m, p, r, a, name] = [await read($, mode), await read($, pin), await read($, route), await read($, arm), await read($, model)]
@@ -99,7 +110,7 @@ async function begin($: EngineInterface, text: string, kind: string) {
     return
   }
   // Pinned by hand: the effort is the person's, so a classification would be spent for nothing.
-  if (!managed(await read($, model)) || (await read($, pin)) !== null) return
+  if (!managed(await modelOf($)) || (await read($, pin)) !== null) return
   await update($, who, () => (notice ? 'notification' : 'person') as Who)
   // Plan mode is the plan effort until it is left: nothing said in it is classified, and no turn in it is a control turn.
   if (await read($, planMode)) {
@@ -268,7 +279,7 @@ async function seed($: EngineInterface, current: string) {
  */
 async function delivered($: EngineInterface, kind: string, text: string) {
   if (!routed(kind) || (await read($, mode)) !== 'auto' || (await read($, pin)) !== null) return
-  if (!managed(await read($, model)) || (await read($, who)) === null) return
+  if (!managed(await modelOf($)) || (await read($, who)) === null) return
   const pick = await classify($, text, true, false, true).catch(() => null)
   if (await read($, planMode)) {
     await asks($, pick)
@@ -321,7 +332,7 @@ async function release($: EngineInterface) {
 
 /** An approved plan moves the work from planning to building: the build effort, not the planning one. */
 async function approved($: EngineInterface, plan: string) {
-  if ((await read($, mode)) !== 'auto' || (await read($, pin)) !== null || !managed(await read($, model))) return
+  if ((await read($, mode)) !== 'auto' || (await read($, pin)) !== null || !managed(await modelOf($))) return
   const next = afterPlan(plan, await read($, task), config)
   await update($, task, () => next.task)
   await settle($, next.route)
@@ -381,7 +392,7 @@ async function keepAgent($: EngineInterface, d: Decision, reason: string) {
     t: await $.clock.now(), s: await $.session.id(), arm: d.arm, phase: r.phase, hard: r.hard, chosen: r.effort,
     base: d.acc.base, sent: d.acc.sent, model: d.model, steps: d.acc.steps, out: d.acc.out, input: d.acc.input,
     cacheRead: d.acc.cacheRead, cacheWrite: d.acc.cacheWrite, ms: Math.round((await $.clock.now()) - d.acc.at), reason,
-    who: 'agent', agent: d.type, trace: d.acc.trace, gen: Math.round(d.acc.gen),
+    who: 'agent', agent: d.type, trace: d.acc.trace, gen: Math.round(d.acc.gen), ...(r.asked ? { asked: true as const } : {}),
   })
 }
 

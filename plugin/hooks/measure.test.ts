@@ -174,3 +174,40 @@ test('reset empties every records file, old and new, and says how many turns it 
   expect(fs.text(`${OLD}/s1.jsonl`)).toBe('')
   expect((await $.command.run(command('reset'))).text).toBe('Effort Pilot: no turn records to clear')
 })
+
+/** A built-in subagent spawned in a measured session, its brief classified as this reply: runs one request and ends. */
+async function subagent($: Engine, on: On, answer: string) {
+  on('command.register', () => ({ value: { command: 'effort-pilot' } }))
+  on('session.model', () => ({ value: 'claude-opus-5-5' }))
+  on('session.id', () => ({ value: 'sess-1' }))
+  on('model.complete', () => ({ value: { isAnswered: true, text: answer, usage } }))
+  on('session.start', () => ({ cwd: '/' }))
+  on('agent.spawn', () => ({ model: 'claude-opus-5-5', agentId: 'a1' }))
+  on('turn.start', (_$, e) => ({ turnId: e.turnId }))
+  on('turn.step', async function* (_$, e) {
+    return { turnId: e.turnId, index: e.index, answer: 'ok', toolUses: [], usage } as never
+  })
+  on('turn.complete', () => ({ text: 'done' }))
+  await $.session.start({ cwd: '/', surface: null, isInteractive: true })
+  const prompt = 'Search the code for every caller of the export helper. Thoroughness: medium.'
+  await $.agent.spawn({ prompt, description: 'find callers', subagentType: 'Explore', provider: { plugin: 'engine', tier: 'core' }, tool_use_id: 'tu1' } as never)
+  await $.turn.start({ text: prompt, turnId: 'st1', agentId: 'a1' } as never)
+  for await (const _ of $.turn.step({ turnId: 'st1', index: 0, model: 'claude-opus-5-5', effort: 'high', messageCount: 1, agentId: 'a1' } as never)) { /* drain */ }
+  await $.turn.complete({ turnId: 'st1', answer: 'done', durationMs: 5, isAborted: false, reason: 'answer', agentId: 'a1' } as never)
+}
+
+test('a subagent whose brief names an effort is recorded as asked', { options: { measure: true, controlShare: 0 } }, async ($, on) => {
+  const fs = disk(on)
+  await subagent($, on, '{"phase":"analyze","hard":false,"continues":false,"asked":"medium","build":"none","faulted":false,"why":"search the code"}')
+  const [record] = (fs.text(`${STORE}/${slotFile(NOW)}`) ?? '').split('\n').filter(Boolean).map(l => JSON.parse(l))
+  expect(record.who).toBe('agent')
+  expect(record.asked).toBe(true)
+})
+
+test('a subagent whose brief names no effort is recorded as the pilot\'s pick', { options: { measure: true, controlShare: 0 } }, async ($, on) => {
+  const fs = disk(on)
+  await subagent($, on, reply)
+  const [record] = (fs.text(`${STORE}/${slotFile(NOW)}`) ?? '').split('\n').filter(Boolean).map(l => JSON.parse(l))
+  expect(record.who).toBe('agent')
+  expect(record.asked).toBe(undefined)
+})
