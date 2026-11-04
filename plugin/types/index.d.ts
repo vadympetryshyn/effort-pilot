@@ -103,6 +103,48 @@ export type AgentRun = {
 /** What the pilot itself spent classifying a turn's messages: Haiku calls, their tokens, the wait before the turn. */
 export type Spend = { calls: number; input: number; out: number; cacheRead: number; cacheWrite: number; ms: number }
 
+/** One arm of a compared phase: its turns, mean cost a turn ($), median model time (ms), share that fell short (0–1). */
+export type ArmRead = { turns: number; cost: number; time: number; short: number }
+
+/**
+ * One measure of a compared phase: the pilot's gain over control (a share of control's cost or time, or points of
+ * falling short; positive: better) with its 90% range, the verdict, and, while unclear, the turns each arm would
+ * still need for the range to leave zero if the gap holds (null: no gap to hold).
+ */
+export type MeasureRead = { share: number; low: number; high: number; verdict: 'better' | 'worse' | 'unclear'; more: { pilot: number; control: number } | null }
+
+/** One group's phase in the report: what was compared, what was not, and the verdicts once both arms have 5+ turns. */
+export type PhaseRead = {
+  who: Who
+  phase: Phase
+  /** The efforts the pilot's compared turns went at, in the order first seen. */
+  efforts: Effort[]
+  pilot: ArmRead | null
+  control: ArmRead | null
+  /** Turns of the phase not compared: high either way, another own effort, an asked effort, or one held over. */
+  same: number
+  /** Turns still needed on each arm before the phase is compared (5 each); both 0 once compared. */
+  need: { pilot: number; control: number }
+  /** Present once both arms have 5+ turns. */
+  measures?: { cost: MeasureRead; time: MeasureRead; short: MeasureRead }
+}
+
+/** The measurement's read, as data: the text report and the report pane both draw it. */
+export type ReportData = {
+  turns: number
+  days: number
+  sessions: number
+  /** Records left out: test or failed turns. */
+  left: number
+  phases: PhaseRead[]
+  /** Turns by the effort their requests went at; none: no request carried one. */
+  sent: Partial<Record<Effort | 'none', number>>
+  /** The classifier's own cost; null while none is recorded. */
+  classifier: { calls: number; turns: number; input: number; out: number; cost: number; perTurn: number; wait: number; missing: number } | null
+  /** Over the compared phases, a pilot turn: cost saved ($) and model time saved (ms); null while no phase is compared. */
+  net: { phases: number; turns: number; saved: number; perTurn: number; faster: number } | null
+}
+
 /** Requests and output tokens at each effort level, main loop only. */
 export type Tally = Partial<Record<Effort, { steps: number; out: number }>>
 
@@ -133,6 +175,8 @@ declare module 'claude-code' {
       who: Who | null
       /** The subagents of this session, newest last (at most 8), for the band. */
       agents: Shaped<AgentRun[]>
+      /** The report the pane draws, as read when it opened or was last refreshed, and where the records are; null before. */
+      board: Shaped<{ data: ReportData; where: string } | null>
       acc: Shaped<{ steps: number; out: number; input: number; cacheRead: number; cacheWrite: number; gen: number; base: Effort | null; sent: Effort | null; at: number; trace: [Effort | null, number][] }>
     }
   }

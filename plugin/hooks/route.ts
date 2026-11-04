@@ -1,4 +1,4 @@
-import type { Config, Effort, Phase, Route, Spend, Task, TurnRecord } from '../types'
+import type { ArmRead, Config, Effort, MeasureRead, Phase, PhaseRead, ReportData, Route, Spend, Task, TurnRecord, Who } from '../types'
 
 export const EFFORTS: readonly Effort[] = ['low', 'medium', 'high', 'xhigh', 'max']
 export const PHASES: readonly Phase[] = ['plan', 'analyze', 'implement', 'fix', 'trivial', 'chat']
@@ -125,7 +125,7 @@ restate: true when the message only asks to restate the agent's last answer with
 asked: the effort level the person tells the agent to think at itself, now, for the work this message hands it, in any words or language ("do it on high", "hazlo en xhigh", "medium is enough", "think at max"); for a message that asks for a plan, the level named for making the plan ("plan it on max"). none when the message names no level for it. Talking about effort is not asking: a level named as a default, a rule or a setting (for a tool, a plugin, an autopilot, a config), as what some kind of work should get in general, or as the subject of the code to change ("make the autopilot default to high for fixes", "nach einem Plan soll es medium sein" are not asking); a model's name. When unsure, none.
 asked is auto when the person takes back a level they named before and lets the effort be chosen again ("back to auto", "vuelve a automático").
 build: the effort level the person tells the agent to carry out a plan at, once it is made ("plan it, then implement on high"); none otherwise. The same: talking about effort in general is not asking.
-faulted: true when the message says the agent's last work fell short: it is wrong, broken, does not work, missed part of the ask, misunderstood it, or must be redone ("не працює", "das ist nicht, was ich wollte", "still broken", "you forgot X"). A new request, a follow-up step, a question or a change of mind is not faulted. When unsure, false.
+faulted: true when the message says the agent's last work fell short: what it did or answered is wrong, broken, does not work, missed or ignored part of what the person had asked, misunderstood it, or must be redone ("не працює", "das ist nicht, was ich wollte", "still broken", "you forgot X", "I did not ask you to…"). Not faulted: a new request or requirement, even one the person forgot to give before; a change of taste in work that works (another colour, layout, order or wording, "I don't like how it looks"); the person deciding otherwise than the agent proposed; a problem in something the agent's last work did not make (a tool, a plugin, another system); a question or a change of mind. When unsure, false.
 plan costs the most: when unsure whether the person asked for a plan, they did not. When unsure between two phases, pick the cheaper.
 The person may write in any language. Judge by what the turn will make the agent do, not by the message's length.`
 
@@ -436,17 +436,30 @@ export function gap(auto: readonly number[], control: readonly number[], rounds 
 }
 
 const percent = (x: number) => `${x >= 0 ? '−' : '+'}${Math.abs(Math.round(x * 100))}%`
-const efforts = (xs: readonly (Effort | null)[]) => [...new Set(xs.filter(Boolean))].join('/') || '—'
 
 /** The model's own time on a turn: its answering, without tools and subagents (a record with no gen: the whole turn). */
 const speed = (r: TurnRecord) => r.gen ?? r.ms
 const sec = (ms: number) => `${(ms / 1000).toFixed(ms < 10_000 ? 1 : 0)}s`
 const points = (x: number) => `${x >= 0 ? '−' : '+'}${Math.abs(Math.round(x * 100))} pts`
-/** One measure's verdict: lower is better for each (cost, time, falling short). */
-function judged(name: string, r: { share: number; low: number; high: number }, show: (x: number) => string) {
-  const word = r.low > 0 ? 'better with Effort Pilot: clear' : r.high < 0 ? 'worse with Effort Pilot: clear' : 'not clear yet'
-  return `${name} ${show(r.share)} (90% range ${show(r.low)} … ${show(r.high)}) → ${word}`
+export const fmt = { usd, sec, percent, points, kTok }
+
+export const GROUPS = [['person', 'your prompts'], ['notification', 'notifications'], ['agent', 'subagents']] as const
+export const groupTitle = (who: Who) => GROUPS.find(([w]) => w === who)![1]
+/** Turns each arm needs before a phase is compared. */
+export const ENOUGH = 5
+
+/** A measure's verdict, lower being better for each (cost, time, falling short), and while it is unclear the turns
+ * each arm would still need, if the gap holds, for the range to leave zero (it narrows as one over the root of n). */
+function measured(r: { share: number; low: number; high: number }, a: number, c: number): MeasureRead {
+  const verdict = r.low > 0 ? 'better' : r.high < 0 ? 'worse' : 'unclear'
+  let more: MeasureRead['more'] = null
+  if (verdict === 'unclear' && r.share !== 0) {
+    const grow = ((r.high - r.low) / 2 / Math.abs(r.share)) ** 2
+    more = { pilot: Math.max(1, Math.ceil(a * grow - a)), control: Math.max(1, Math.ceil(c * grow - c)) }
+  }
+  return { ...r, verdict, more }
 }
+export const VERDICT = { better: 'better with Effort Pilot: clear', worse: 'worse with Effort Pilot: clear', unclear: 'not clear yet' } as const
 
 /**
  * The measurement's read, always against high: the person's own effort high is the one baseline. Three measures per
@@ -455,60 +468,98 @@ function judged(name: string, r: { share: number; low: number; high: number }, s
  * the pilot would have sent another. Turns at another own effort, efforts asked for in words and turns marked as a
  * test are left out.
  */
-export function report(all: readonly TurnRecord[]) {
+export function reportData(all: readonly TurnRecord[]): ReportData {
   const records = all.filter(r => !r.test && r.reason !== 'error')
-  if (!records.length) return 'no turns recorded yet'
   const fell = short(records)
-  const lines: string[] = []
+  const phases: PhaseRead[] = []
   let saved = 0
   let faster = 0
   let compared = 0
-  let phases = 0
-  const groups = [['person', 'your prompts'], ['notification', 'notifications'], ['agent', 'subagents']] as const
-  for (const [who, title] of groups) for (const phase of PHASES) {
+  let done = 0
+  const arm = (xs: TurnRecord[]): ArmRead | null => xs.length
+    ? { turns: xs.length, cost: mean(xs.map(turnCost)), time: median(xs.map(speed)), short: mean(xs.map(x => (fell.get(x) ? 1 : 0))) }
+    : null
+  for (const [who] of GROUPS) for (const phase of PHASES) {
     const turns = records.filter(r => (r.who ?? 'person') === who && r.phase === phase)
     if (!turns.length) continue
     // A pilot turn counts where its own pick went (an effort held over from before the turn is not its pick).
     const a = turns.filter(r => r.arm === 'auto' && !r.asked && r.base === 'high' && r.sent === r.chosen && r.sent !== 'high')
     const c = turns.filter(r => r.arm === 'control' && r.base === 'high' && r.sent === 'high' && r.chosen !== 'high')
-    const same = turns.length - a.length - c.length
-    const row = (xs: TurnRecord[]) =>
-      `${xs.length} turns · ${usd(mean(xs.map(turnCost)))} a turn · model time ${sec(median(xs.map(speed)))} median · fell short ${Math.round(mean(xs.map(x => (fell.get(x) ? 1 : 0))) * 100)}%`
-    const head = `${title} · ${phase} (pilot ${efforts(a.map(x => x.sent))} vs high)`
-    const why = 'at high either way, another own effort, an effort you asked for, or one held over'
-    if (!a.length && !c.length) {
-      lines.push(`${title} · ${phase}: ${same} turns, none comparable (${why})`)
-      continue
+    const read: PhaseRead = {
+      who, phase,
+      efforts: [...new Set(a.map(x => x.sent).filter((x): x is Effort => Boolean(x)))],
+      pilot: arm(a), control: arm(c),
+      same: turns.length - a.length - c.length,
+      need: { pilot: Math.max(0, ENOUGH - a.length), control: Math.max(0, ENOUGH - c.length) },
     }
-    let verdict = `too few turns to compare (need 5+ in each; ${Math.max(0, 5 - a.length)} pilot and ${Math.max(0, 5 - c.length)} control to go)`
-    if (a.length >= 5 && c.length >= 5) {
-      phases++
+    if (a.length >= ENOUGH && c.length >= ENOUGH) {
+      done++
       saved += (mean(c.map(turnCost)) - mean(a.map(turnCost))) * a.length
       faster += (mean(c.map(speed)) - mean(a.map(speed))) * a.length
       compared += a.length
-      verdict = [
-        judged('cost a turn', saving(a.map(turnCost), c.map(turnCost)), percent),
-        judged('model time', saving(a.map(speed), c.map(speed)), percent),
-        judged('fell short', gap(a.map(x => (fell.get(x) ? 1 : 0)), c.map(x => (fell.get(x) ? 1 : 0))), points),
-      ].join('\n  ')
+      const bit = (x: TurnRecord) => (fell.get(x) ? 1 : 0)
+      read.measures = {
+        cost: measured(saving(a.map(turnCost), c.map(turnCost)), a.length, c.length),
+        time: measured(saving(a.map(speed), c.map(speed)), a.length, c.length),
+        short: measured(gap(a.map(bit), c.map(bit)), a.length, c.length),
+      }
     }
-    lines.push(`${head}:\n  pilot:   ${a.length ? row(a) : 'none'}\n  control: ${c.length ? row(c) : 'none'}${same ? `\n  ${same} more not compared (${why})` : ''}\n  ${verdict}`)
+    phases.push(read)
   }
+  const sent: ReportData['sent'] = {}
+  for (const r of records) sent[r.sent ?? 'none'] = (sent[r.sent ?? 'none'] ?? 0) + 1
   // The classifier runs on every turn, control turns too (they need a phase to be compared by).
   const counted = records.filter(r => r.cls)
   const cls = counted.map(r => r.cls!)
   const spent = sum(cls.map(classifierCost))
   const perTurn = counted.length ? spent / counted.length : 0
-  const own = counted.length
-    ? `Effort Pilot's own cost (Haiku classifier): ${sum(cls.map(c => c.calls))} calls on ${counted.length} turns, ${kTok(sum(cls.map(c => c.input + c.cacheRead + c.cacheWrite)))} in / ${kTok(sum(cls.map(c => c.out)))} out tokens ≈${usd(spent)} — ${usd(perTurn)} a turn; it waits ${(sum(cls.map(c => c.ms)) / Math.max(1, sum(cls.map(c => c.calls))) / 1000).toFixed(1)}s before a prompt${counted.length < records.length ? ` (${records.length - counted.length} turns carry no classifier cost)` : ''}`
+  const calls = sum(cls.map(c => c.calls))
+  return {
+    turns: records.length,
+    days: records.length ? (Math.max(...records.map(r => r.t)) - Math.min(...records.map(r => r.t))) / 86_400_000 : 0,
+    sessions: new Set(records.map(r => r.s)).size,
+    left: all.length - records.length,
+    phases,
+    sent,
+    classifier: counted.length
+      ? {
+          calls, turns: counted.length, cost: spent, perTurn,
+          input: sum(cls.map(c => c.input + c.cacheRead + c.cacheWrite)), out: sum(cls.map(c => c.out)),
+          wait: sum(cls.map(c => c.ms)) / Math.max(1, calls) / 1000, missing: records.length - counted.length,
+        }
+      : null,
+    net: compared ? { phases: done, turns: compared, saved: saved / compared, perTurn, faster: faster / compared } : null,
+  }
+}
+
+/** The report as text: where no pane can be drawn (claude -p), and the pane's own words. */
+export function report(all: readonly TurnRecord[]) {
+  const d = reportData(all)
+  if (!d.turns) return 'no turns recorded yet'
+  const why = 'at high either way, another own effort, an effort you asked for, or one held over'
+  const row = (x: ArmRead) =>
+    `${x.turns} turns · ${usd(x.cost)} a turn · model time ${sec(x.time)} median · fell short ${Math.round(x.short * 100)}%`
+  const judged = (name: string, m: MeasureRead, show: (x: number) => string) =>
+    `${name} ${show(m.share)} (90% range ${show(m.low)} … ${show(m.high)}) → ${VERDICT[m.verdict]}`
+  const lines = d.phases.map(p => {
+    const title = groupTitle(p.who)
+    if (!p.pilot && !p.control) return `${title} · ${p.phase}: ${p.same} turns, none comparable (${why})`
+    const head = `${title} · ${p.phase} (pilot ${p.efforts.join('/') || '—'} vs high)`
+    const verdict = p.measures
+      ? [judged('cost a turn', p.measures.cost, percent), judged('model time', p.measures.time, percent), judged('fell short', p.measures.short, points)].join('\n  ')
+      : `too few turns to compare (need ${ENOUGH}+ in each; ${p.need.pilot} pilot and ${p.need.control} control to go)`
+    return `${head}:\n  pilot:   ${p.pilot ? row(p.pilot) : 'none'}\n  control: ${p.control ? row(p.control) : 'none'}${p.same ? `\n  ${p.same} more not compared (${why})` : ''}\n  ${verdict}`
+  })
+  const c = d.classifier
+  const own = c
+    ? `Effort Pilot's own cost (Haiku classifier): ${c.calls} calls on ${c.turns} turns, ${kTok(c.input)} in / ${kTok(c.out)} out tokens ≈${usd(c.cost)} — ${usd(c.perTurn)} a turn; it waits ${c.wait.toFixed(1)}s before a prompt${c.missing ? ` (${c.missing} turns carry no classifier cost)` : ''}`
     : 'Effort Pilot\'s own cost: not recorded yet'
-  const net = compared
-    ? `net over ${phases} compared phases (${compared} pilot turns): cost ${usd(saved / compared)} a turn saved − classifier ${usd(perTurn)} = ${usd(saved / compared - perTurn)} → ${saved / compared - perTurn > 0 ? 'Effort Pilot pays for itself' : 'Effort Pilot costs more than it saves'}; model time ${sec(Math.abs(faster / compared))} a turn ${faster >= 0 ? 'faster' : 'slower'}; quality: see "fell short" per phase`
-    : 'net: not known yet — no phase has 5+ turns on each arm'
-  const days = (Math.max(...records.map(r => r.t)) - Math.min(...records.map(r => r.t))) / 86_400_000
-  const tests = all.length - records.length
+  const n = d.net
+  const net = n
+    ? `net over ${n.phases} compared phases (${n.turns} pilot turns): cost ${usd(n.saved)} a turn saved − classifier ${usd(n.perTurn)} = ${usd(n.saved - n.perTurn)} → ${n.saved - n.perTurn > 0 ? 'Effort Pilot pays for itself' : 'Effort Pilot costs more than it saves'}; model time ${sec(Math.abs(n.faster))} a turn ${n.faster >= 0 ? 'faster' : 'slower'}; quality: see "fell short" per phase`
+    : `net: not known yet — no phase has ${ENOUGH}+ turns on each arm`
   return [
-    `${records.length} turns over ${days.toFixed(1)} days, ${new Set(records.map(r => r.s)).size} sessions${tests ? ` (${tests} test or failed turns left out)` : ''} · costs at API prices (a common unit for Opus and Haiku tokens)`,
+    `${d.turns} turns over ${d.days.toFixed(1)} days, ${d.sessions} sessions${d.left ? ` (${d.left} test or failed turns left out)` : ''} · costs at API prices (a common unit for Opus and Haiku tokens)`,
     ...lines,
     own,
     net,

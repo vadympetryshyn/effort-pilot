@@ -83,7 +83,7 @@ A band above the prompt shows the effort now, how it got there and why. Follow-u
 | `/effort-pilot on` · `off` · `shadow` | run · stop · only show what it would pick |
 | `/effort-pilot stats` | this session's turns and efforts |
 | `/effort-pilot classify <text>` | what it would pick for a message |
-| `/effort-pilot report` | cost, speed and quality vs. `high` (needs **measure**) |
+| `/effort-pilot report` | cost, speed and quality vs. `high` in a pane with charts beside the chat (as text under `claude -p`; needs **measure**) |
 | `/effort-pilot reset` | delete the turn records **measure** kept |
 
 ## Settings

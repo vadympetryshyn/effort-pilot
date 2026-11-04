@@ -4,9 +4,10 @@ import type { EngineInterface, Register } from 'claude-code'
 import type { AgentRun, Config, Effort, Mode, Route, Spend, Tally, Task, TurnRecord, Who } from '../types'
 import {
   afterPlan, asideText, briefPrompt, cacheRewritten, unasked, carry, configFrom, DEFAULTS, EFFORTS, forAgent, forNotice, managed as managedBy,
-  midTurn, parse, parseRecords, prompt, promptOf, recentOf, report, seedPrompt, SHORT, SYSTEM, wholeRequest,
+  midTurn, parse, parseRecords, prompt, promptOf, recentOf, report, reportData, seedPrompt, SHORT, SYSTEM, wholeRequest,
 } from './route'
 import type { Aside, Step } from './route'
+import { board as drawBoard, PANE, PANE_TITLE } from './board'
 import { bySlot, dataDir, fresh, KEEP_DAYS, legacyDir, pack, slotFile, stale } from './store'
 
 // The settings (userConfig), read once per load: a change in /config reloads the module with the new values.
@@ -67,6 +68,8 @@ const wire = atom({ plugin: 'effort-pilot', key: 'wire' } as const, null as Effo
 // Plan mode was on at some point of this main-loop turn: the turn records as a plan.
 const planned = atom({ plugin: 'effort-pilot', key: 'planned' } as const, false)
 const acc = atom({ plugin: 'effort-pilot', key: 'acc' } as const, EMPTY, { shape: 'acc-3' })
+// The report the pane draws, as read when it opened or was last refreshed.
+const board = atom({ plugin: 'effort-pilot', key: 'board' } as const, null, { shape: 'board-1' })
 
 /** Plan mode's effort: the plan effort, or the one the person asked for the planning. */
 async function planLevel($: EngineInterface): Promise<Effort> {
@@ -250,6 +253,14 @@ async function records($: EngineInterface): Promise<TurnRecord[]> {
   const all: TurnRecord[] = []
   for (const f of await files($, d)) all.push(...parseRecords((await readOr($, `${d}/${f.name}`)) ?? '').filter(r => fresh(r.t, now)))
   return all
+}
+/** Reads the records for the report and keeps their read for the pane. */
+async function readReport($: EngineInterface) {
+  const d = await dir($)
+  const all = await records($)
+  const where = `records: ${d ?? 'none (no home folder known)'} (the last ${KEEP_DAYS} days)`
+  await update($, board, () => ({ data: reportData(all), where }))
+  return { records: all, where }
 }
 /** Empties every records file, the data folder's and a 1.0 install's: the number of turns it held. */
 async function reset($: EngineInterface) {
@@ -527,8 +538,12 @@ export const register: Register = (on, options) => {
       return { text: r ? describe(r) : 'no answer from the classifier' }
     } else if (verb === 'report') {
       if (!measuring) return { text: 'measuring is off: no control turns, no turn records. Turn it on in /config: effort-pilot · measure.' }
-      const d = await dir($)
-      return { text: `${report(await records($))}\n\nrecords: ${d ?? 'none (no home folder known)'} (the last ${KEEP_DAYS} days)` }
+      const all = await readReport($)
+      // A pane beside the chat where a surface draws one; else (claude -p, a surface that places none) the text.
+      const opened = await $.ui.open({ id: PANE, title: PANE_TITLE }).catch(() => null)
+      if (opened?.isPlaced) return { text: 'report opened beside the chat' }
+      if (opened) await $.ui.close({ id: PANE }).catch(() => undefined)
+      return { text: `${report(all.records)}\n\n${all.where}` }
     } else if (verb === 'reset') {
       const n = await serial(() => reset($))
       return { text: n ? `Effort Pilot: cleared ${n} turn records` : 'Effort Pilot: no turn records to clear' }
@@ -800,6 +815,12 @@ export const register: Register = (on, options) => {
       }).catch(err => $.ui.log(`effort-pilot: could not keep the turn: ${String(err)}`))
     }
     return result
+  })
+
+  // The report pane: the read kept when it opened; Refresh reads the records again.
+  on('ui.render', { component: 'Pane', requestId: PANE }, async ($, e) => {
+    const refresh = () => void readReport($).catch(err => $.ui.log(`effort-pilot: could not read the turn records: ${String(err)}`))
+    return drawBoard($.ui.resolve(e), await read($, board), e.props.bodyColumns, refresh)
   })
 
   // The band above the prompt: the effort now, how it got here, and why; then the subagents and theirs.
