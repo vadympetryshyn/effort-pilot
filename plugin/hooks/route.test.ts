@@ -1,7 +1,8 @@
 import { describe, expect, test } from 'claude-code/testing'
 
 import type { Route, Spend, Task, TurnRecord } from '../types'
-import { afterPlan, carry, configFrom, DEFAULTS, effortFor, forAgent, forNotice, managed, midTurn, parse, parseRecords, report } from './route'
+import { afterPlan, cacheRewritten, carry, configFrom, DEFAULTS, effortFor, forAgent, forNotice, managed, midTurn, parse, parseRecords, perMessage, report, wholeRequest } from './route'
+import type { Step } from './route'
 
 const route = (phase: Route['phase'], effort: Route['effort'], extra: Partial<Route> = {}): Route => ({ phase, hard: false, effort, why: 'w', ...extra })
 const task = (phase: Task['phase'], effort: Task['effort']): Task => ({ phase, hard: false, effort, text: 'the work' })
@@ -252,5 +253,67 @@ describe('turn records', () => {
     expect(r?.out).toBe(0)
     expect(r?.model).toBe('')
     expect(report(parseRecords(good))).toContain('1 turns over')
+  })
+})
+
+describe('perMessage', () => {
+  test('the newer models on a first-party login take effort per message', () => {
+    for (const m of ['claude-opus-5', 'claude-opus-5-5', 'claude-opus-5-5[1m]', 'claude-fable-5-1', 'claude-fable-5-1-20260301', 'claude-fable-5-1[1m]', 'claude-sonnet-5-5', 'claude-haiku-5-5']) {
+      expect(perMessage(m, true)).toBe(true)
+    }
+  })
+  test('Claude 4.x and older take it per request', () => {
+    for (const m of ['claude-opus-4-6', 'claude-opus-4-1-20250805', 'claude-opus-4-6[1m]', 'claude-sonnet-4-5-20250929', 'claude-haiku-4-5', 'claude-3-5-sonnet-20241022', 'claude-3-opus-20240229']) {
+      expect(wholeRequest(m, true)).toBe('model')
+    }
+  })
+  test('Fable 5 takes it per request, Fable 5.1 per message', () => {
+    expect(wholeRequest('claude-fable-5', true)).toBe('model')
+    expect(wholeRequest('claude-fable-5-20260101', true)).toBe('model')
+    expect(wholeRequest('claude-fable-5[1m]', true)).toBe('model')
+    expect(wholeRequest('claude-fable-5-1', true)).toBe(null)
+    expect(wholeRequest('claude-fable-5-1-20260301', true)).toBe(null)
+  })
+  test('a provider id names the model the same way', () => {
+    expect(wholeRequest('us.anthropic.claude-opus-4-1-20250805-v1:0', false)).toBe('model')
+    expect(wholeRequest('claude-opus-4-1@20250805', false)).toBe('model')
+  })
+  test('without a first-party credential any model takes it per request', () => {
+    expect(wholeRequest('claude-opus-5-5', false)).toBe('provider')
+    expect(perMessage('claude-opus-5-5', true)).toBe(true)
+  })
+  test('a numeric effort goes per request, a level per message', () => {
+    expect(wholeRequest('claude-opus-5-5', true, 32000)).toBe('number')
+    expect(wholeRequest('claude-opus-5-5', true, 'high')).toBe(null)
+  })
+  test('an alias or a model not known here counts as per message', () => {
+    expect(perMessage('opus', true)).toBe(true)
+    expect(perMessage('claude-opus-6', true)).toBe(true)
+    expect(perMessage('', true)).toBe(true)
+  })
+})
+
+describe('cacheRewritten', () => {
+  const prev: Step = { model: 'claude-opus-5-5', effort: 'high', messageCount: 10, prompt: 50_000, cacheRead: 48_000, at: 1_000 }
+  const cur = (extra: Partial<Step & { input: boolean }> = {}) => ({ ...prev, effort: 'low', messageCount: 12, prompt: 51_000, at: 31_000, input: true, ...extra })
+  test('a switch that reads little from the cache marks the model', () => {
+    expect(cacheRewritten(prev, cur({ cacheRead: 3_000 }))).toBe(true)
+  })
+  test('a switch that reads the cache marks nothing', () => {
+    expect(cacheRewritten(prev, cur({ cacheRead: 49_000 }))).toBe(false)
+  })
+  test('a miss with no switch marks nothing', () => {
+    expect(cacheRewritten(prev, cur({ effort: 'high', cacheRead: 0 }))).toBe(false)
+  })
+  test('a miss after a compaction, a long gap or on a small prompt marks nothing', () => {
+    expect(cacheRewritten(prev, cur({ cacheRead: 0, messageCount: 3 }))).toBe(false)
+    expect(cacheRewritten(prev, cur({ cacheRead: 0, at: prev.at + 5 * 60_000 }))).toBe(false)
+    expect(cacheRewritten({ ...prev, prompt: 3_000, cacheRead: 2_000 }, cur({ cacheRead: 0 }))).toBe(false)
+  })
+  test('a miss where the cache was not read before, on another model, or on a step without new input marks nothing', () => {
+    expect(cacheRewritten({ ...prev, cacheRead: 0 }, cur({ cacheRead: 0 }))).toBe(false)
+    expect(cacheRewritten(prev, cur({ cacheRead: 0, model: 'claude-fable-5-1' }))).toBe(false)
+    expect(cacheRewritten(prev, cur({ cacheRead: 0, input: false }))).toBe(false)
+    expect(cacheRewritten(null, cur({ cacheRead: 0 }))).toBe(false)
   })
 })

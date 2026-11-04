@@ -2,6 +2,12 @@
 
 All notable changes. Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions: [SemVer](https://semver.org/).
 
+## [1.2.0] — 2026-11-04
+
+- Effort Pilot stands aside where effort is one setting of the whole request, since there every switch rewrites the conversation's prompt cache: Claude 4.x and older, Fable 5 (not 5.1), sessions without an Anthropic login (Bedrock, Vertex, Foundry, a gateway), and an effort set as a number. Your own effort goes untouched, nothing is classified (no Haiku call), no control turns or records are made, and subagents keep the session's effort. The newer models with an Anthropic login (Opus 5 and 5.5, Fable 5.1) switch as before: there effort goes per message and the cache holds.
+- On a model it does not know, it watches the cache: a switch that reads less than half of the prompt before it from the cache (same model, the conversation only grown, within five minutes) marks the model, and from the next request your own effort stands, for the rest of the session. One toast says so.
+- The band, the status line, `/effort-pilot` and `/effort-pilot stats` say when and why it stands aside.
+
 ## [1.1.2] — 2026-11-04
 
 - An approved plan is built at the build effort from the very next request, and plan mode entered mid-turn runs at the plan effort at once. Claude Code applies a new per-message effort only on a request with new input, and a plan's approval arrives as a tool result, so the rest of that turn used to stay at `xhigh` until your next message. The pilot now adds one short line to the conversation after the approval, which counts as new input. The "running at xhigh for now" warning is gone.

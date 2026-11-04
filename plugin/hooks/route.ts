@@ -32,6 +32,64 @@ export function managed(model: string | null | undefined, config: Config = DEFAU
 }
 
 /**
+ * Why a model's effort is one setting of the whole request, so that changing it rewrites the conversation's prompt
+ * cache; null where the effort goes per message and a change costs no cache.
+ * - model: Claude 4.x and older, and Fable 5 (not 5.1 or later);
+ * - provider: no first-party Anthropic credential (Bedrock, Vertex, Foundry, a gateway);
+ * - number: the effort is a number, which goes out with every request;
+ * - usage: a switch was seen to rewrite the cache (cacheRewritten), on a model not known here.
+ * A model not known here counts as per message: the usage check catches it.
+ */
+export type Aside = 'model' | 'provider' | 'number' | 'usage'
+export function wholeRequest(model: string | null | undefined, firstParty: boolean, effort?: string | number): Aside | null {
+  const m = (model ?? '').toLowerCase()
+  if (m) {
+    // The older naming puts the generation first: claude-3-5-sonnet, claude-2.1.
+    if (/claude-\d/.test(m)) return 'model'
+    // The newer one puts the family first: claude-opus-4-6, claude-sonnet-4-5-20250929, claude-fable-5-1[1m]. A minor
+    // version is one or two digits; eight are a date.
+    const v = /(?:^|[^a-z])(opus|sonnet|haiku|fable)[-\s](\d+)(?:[-.](\d{1,2}))?(?![0-9])/.exec(m)
+    if (v) {
+      const major = Number(v[2])
+      if (major < 5) return 'model'
+      if (v[1] === 'fable' && major === 5 && v[3] === undefined) return 'model'
+    }
+  }
+  if (!firstParty) return 'provider'
+  if (typeof effort === 'number') return 'number'
+  return null
+}
+/** The effort goes per message on this model and setup: switching it costs no prompt cache. */
+export const perMessage = (model: string | null | undefined, firstParty: boolean, effort?: string | number) => wholeRequest(model, firstParty, effort) === null
+
+/** How the band, the status and stats say the pilot stands aside on a model (after "Effort Pilot: "). */
+export function asideText(model: string, why: Aside) {
+  const detail = { model: '', provider: ' (no first-party Anthropic login: Bedrock, Vertex, Foundry or a gateway)', number: ' (your effort is a number)', usage: ' (a switch was seen to rewrite the prompt cache)' }[why]
+  return `off on ${model} — effort is one setting per request here${detail}, so a change would rewrite the prompt cache; your own effort stands`
+}
+
+/** One main-loop request as the cache check needs it. at: when it started (cur) or ended (prev), in ms. */
+export type Step = { model: string; effort: string | number | null; messageCount: number; prompt: number; cacheRead: number; at: number }
+/** Below this the API caches nothing, and five minutes is the cache's life: a miss after either tells nothing. */
+const CACHED = 4096
+const LIFE = 5 * 60_000
+/** The whole prompt a request carried: uncached, read from the cache and written to it. */
+export const promptOf = (u: { input_tokens: number; cache_read_input_tokens: number; cache_creation_input_tokens: number }) =>
+  u.input_tokens + u.cache_read_input_tokens + u.cache_creation_input_tokens
+/**
+ * A request with new input went at another effort than the one before it, on the same model, with the conversation
+ * only grown and the cache still alive and read, yet read less than half of the prompt before it from the cache:
+ * the effort is one setting of the whole request here.
+ */
+export function cacheRewritten(prev: Step | null, cur: Step & { input: boolean }) {
+  if (!prev || !cur.input) return false
+  if (cur.effort === null || prev.effort === null || cur.effort === prev.effort) return false
+  if (cur.model !== prev.model || cur.messageCount < prev.messageCount) return false
+  if (cur.at - prev.at >= LIFE || prev.cacheRead <= 0 || prev.prompt < CACHED) return false
+  return cur.cacheRead < prev.prompt / 2
+}
+
+/**
  * The rule: the plan effort only for a plan, which is plan mode or the person explicitly asking for one;
  * a hard question the analyze effort; building the build effort, the hard-build one when hard; talk and small edits
  * the talk effort.

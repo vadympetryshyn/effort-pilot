@@ -40,7 +40,14 @@ claude plugin install effort-pilot --marketplace vadympetryshyn/effort-pilot
 It is on as soon as it loads: from your next message, the line above the prompt shows `⏵ effort` with the effort it
 picked and why. Nothing to configure — every setting has a default (the terminal install still says its options are
 "not yet set": Claude Code counts any option you have not saved yourself, and the defaults apply). Works on Opus and Fable (Sonnet and Haiku are left to you). Needs a recent
-Claude Code (tested on 2.1.316).
+Claude Code (tested on 2.1.318).
+
+**Where it stands aside.** On the newer models (Opus 5 and 5.5, Fable 5.1) with an Anthropic login, effort is set per
+message, and a switch costs no prompt cache. Elsewhere effort is one setting of the whole request, and every switch
+would rewrite the conversation's prompt cache: on Claude 4.x and older, Fable 5, sessions on Bedrock, Vertex, Foundry or
+a gateway, and an effort set as a number. There Effort Pilot leaves your own effort alone (no classifier call either),
+and the band says so. On a model it does not know, it watches the cache: if a switch is seen to rewrite it, it stands
+aside on that model for the rest of the session.
 
 **Update:** `claude plugin marketplace update effort-pilot && claude plugin update effort-pilot@effort-pilot`, then
 restart. **Pause:** `/effort-pilot off`. **Remove:** `/plugin uninstall effort-pilot@effort-pilot`.
@@ -66,7 +73,7 @@ A band above the prompt shows the effort now, how it got there and why. Follow-u
 - 🤖 **Subagents** get their own effort (never below the build effort, `medium` by default).
 - 🔔 **Background results** continue at the effort of the work they serve.
 - ✋ **You stay in charge.** `/effort <level>` pins it; `/effort-pilot on` resumes.
-- 🔒 **Private.** Nothing leaves your machine but the Haiku call. Your effort setting is changed per request; the model and prompt cache stay untouched.
+- 🔒 **Private.** Nothing leaves your machine but the Haiku call. Your effort setting is changed per message; the model is never changed, and the prompt cache stays intact (where a switch would rewrite it, Effort Pilot stands aside).
 
 ## Commands
 
@@ -90,7 +97,7 @@ All in `/config` → **effort-pilot**.
 | `buildEffort` | `medium` | building and fixing |
 | `hardBuildEffort` | `high` | building that is hard (many files, tricky logic) |
 | `talkEffort` | `low` | questions, chat, tiny edits |
-| `managedModels` | `opus,fable` | models whose effort it sets |
+| `managedModels` | `opus,fable` | models whose effort it sets (never where effort is one setting per request: see above) |
 | `headless` | off | also steer `claude -p` and SDK runs |
 | `measure` | off | run the comparison below |
 | `controlShare` | `30` | % of turns left at `high` while measuring |

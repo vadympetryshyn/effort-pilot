@@ -3,9 +3,10 @@ import type { EngineInterface, Register } from 'claude-code'
 
 import type { AgentRun, Config, Effort, Mode, Route, Spend, Tally, Task, TurnRecord, Who } from '../types'
 import {
-  afterPlan, briefPrompt, unasked, carry, configFrom, DEFAULTS, EFFORTS, forAgent, forNotice, managed as managedBy, midTurn, parse,
-  parseRecords, prompt, recentOf, report, seedPrompt, SHORT, SYSTEM,
+  afterPlan, asideText, briefPrompt, cacheRewritten, unasked, carry, configFrom, DEFAULTS, EFFORTS, forAgent, forNotice, managed as managedBy,
+  midTurn, parse, parseRecords, prompt, promptOf, recentOf, report, seedPrompt, SHORT, SYSTEM, wholeRequest,
 } from './route'
+import type { Aside, Step } from './route'
 import { bySlot, dataDir, fresh, KEEP_DAYS, legacyDir, pack, slotFile, stale } from './store'
 
 // The settings (userConfig), read once per load: a change in /config reloads the module with the new values.
@@ -17,7 +18,27 @@ let measuring = false
 let controlShare = 0.3
 // Steer headless sessions too (claude -p, the Agent SDK). Off by default: a script or pipeline expects the effort it set.
 let headless = false
-const managed = (model: string | null | undefined) => managedBy(model, config)
+// Whether the session holds a first-party Anthropic credential: read once a process (a /clear keeps the process, a
+// reload asks again); undefined until read, and taken as first-party until then.
+let firstParty: boolean | undefined
+async function credential($: EngineInterface) {
+  if (firstParty !== undefined) return
+  firstParty = await $.session.authorize().then(a => a !== null, err => {
+    $.ui.log(`effort-pilot: could not read the session's credential: ${String(err)}`)
+    return true
+  })
+}
+// Models a switch was seen to rewrite the prompt cache on, in this process (cacheRewritten): left to the person.
+const rewrites = new Set<string>()
+/** Why the pilot stands aside on a model the settings name; null where it sets the effort. */
+function aside(model: string | null | undefined): Aside | null {
+  if (!managedBy(model, config)) return null
+  if (rewrites.has(model ?? '')) return 'usage'
+  return wholeRequest(model, firstParty !== false, sessionEffort)
+}
+// A model the settings name, where the effort goes per message: a switch there costs no prompt cache. Elsewhere it is
+// one setting of the whole request, every switch rewrites the conversation's cache, and the person's own effort stands.
+const managed = (model: string | null | undefined) => managedBy(model, config) && aside(model) === null
 
 const mode = atom({ plugin: 'effort-pilot', key: 'mode' } as const, 'auto' as Mode)
 const pin = atom({ plugin: 'effort-pilot', key: 'pin' } as const, null as Effort | null)
@@ -114,12 +135,16 @@ async function setPlan($: EngineInterface, isPlan: boolean) {
 /** Route a turn that starts with this text: a person's prompt, a notification, or a message that waited in the queue. */
 async function begin($: EngineInterface, text: string, kind: string) {
   const notice = NOTICE.has(kind)
+  await credential($)
   if (!routed(kind) || (await read($, mode)) === 'off') {
     await update($, who, () => null)
     return
   }
   // Pinned by hand: the effort is the person's, so a classification would be spent for nothing.
-  if (!managed(await modelOf($)) || (await read($, pin)) !== null) return
+  const name = await modelOf($)
+  const why = aside(name)
+  if (why) $.ui.status(`effort: your own · ${asideText(name, why)}`)
+  if (!managed(name) || (await read($, pin)) !== null) return
   await update($, who, () => (notice ? 'notification' : 'person') as Who)
   // Plan mode is the plan effort until it is left: nothing said in it is classified, and no turn in it is a control turn.
   if (await read($, planMode)) {
@@ -364,6 +389,18 @@ async function applyNow($: EngineInterface, purpose: string) {
   else freshInput = true
 }
 
+/**
+ * A switch of effort was seen to rewrite the prompt cache on this model: it takes effort per request here. From the
+ * next request the person's own effort stands, for the rest of the process (a wrong mark lasts one session).
+ */
+async function rewrote($: EngineInterface, name: string, prev: Step, cur: Step) {
+  rewrites.add(name)
+  $.ui.log(`effort-pilot: on ${name} a switch from ${prev.effort} to ${cur.effort} read ${cur.cacheRead} of the ${prev.prompt} prompt tokens before it from the cache: effort is one setting per request here; your own effort stands from the next request`)
+  $.ui.toast(`Effort Pilot: ${asideText(name, 'usage')}`)
+  $.ui.status(`effort: your own · ${asideText(name, 'usage')}`)
+  await publish($)
+}
+
 /** An approved plan moves the work from planning to building: the build effort, not the planning one. */
 async function approved($: EngineInterface, plan: string) {
   if ((await read($, mode)) !== 'auto' || (await read($, pin)) !== null || !managed(await modelOf($))) return
@@ -405,7 +442,9 @@ const byBrief = new Map<string, Decision>()
 const byAgent = new Map<string, Decision>()
 const explicit = new Set<string>()
 // The session's own effort as the main loop last saw it (before the pilot's rewrite): what a subagent inherits.
-let sessionEffort: string | undefined
+let sessionEffort: string | number | undefined
+// The main loop's last request, for the cache check (cacheRewritten).
+let lastStep: Step | null = null
 // Measuring's one baseline is high: a control turn only where the person's own effort is high (unknown before the
 // session's first request: taken as high) and the pilot would send another.
 const differs = (effort: Effort) => (sessionEffort === undefined || sessionEffort === 'high') && effort !== 'high'
@@ -455,6 +494,7 @@ export const register: Register = (on, options) => {
   headless = options.headless === true
   on('session.start', async ($, e, next) => {
     interactive = e.isInteractive
+    await credential($)
     await $.command.register({
       name: 'effort-pilot',
       description: 'Effort Pilot: on | shadow | off | stats | report | reset | classify <text>',
@@ -473,6 +513,7 @@ export const register: Register = (on, options) => {
 
   on('command.run', { command: 'effort-pilot' }, async ($, e) => {
     await resume($)
+    await credential($)
     const args = e.args.trim()
     const [verb = ''] = args.toLowerCase().split(/\s+/)
     // on also takes back an effort set by hand with /effort: one way to hand the effort back to the pilot.
@@ -492,12 +533,15 @@ export const register: Register = (on, options) => {
       const n = await serial(() => reset($))
       return { text: n ? `Effort Pilot: cleared ${n} turn records` : 'Effort Pilot: no turn records to clear' }
     } else if (verb === 'stats') {
+      const name = await modelOf($).catch(() => '')
+      const why = aside(name)
       const t = await read($, tally)
       const rows = EFFORTS.filter(l => t[l]).map(l => `${l}: ${t[l]?.steps} requests, ${t[l]?.out} output tokens`)
       const turns = (await read($, trail)).map(describe)
       const subs = (await read($, agents)).map(a => `${a.type} «${a.description}»: ${a.effort ?? 'its own'} (${a.source}${a.status === 'running' ? ', running' : ''})${a.why ? ` — ${a.why}` : ''}`)
       return {
         text: [
+          ...(why ? [`Effort Pilot: ${asideText(name, why)}`] : []),
           `turns:\n${turns.join('\n') || 'none yet'}`,
           `subagents:\n${subs.join('\n') || 'none yet'}`,
           `main-loop requests by effort:\n${rows.join('\n') || 'none yet'}`,
@@ -506,8 +550,11 @@ export const register: Register = (on, options) => {
     }
     await publish($)
     const p = await read($, pin)
+    const name = await modelOf($).catch(() => '')
+    const why = aside(name)
+    const off = why ? ` · ${asideText(name, why)}` : ''
     const measured = measuring ? ` · measuring, ${Math.round(controlShare * 100)}% control turns` : ''
-    return { text: `Effort Pilot: ${await read($, mode)}${p ? `, pinned ${p}` : ''}${measured}` }
+    return { text: `Effort Pilot: ${await read($, mode)}${p ? `, pinned ${p}` : ''}${off}${measured}` }
   })
 
   // A person who sets /effort by hand takes over until `/effort-pilot on` (or `/effort auto`).
@@ -602,6 +649,9 @@ export const register: Register = (on, options) => {
   on('agent.spawn', async ($, e, next) => {
     if (e.fork || e.workflow || e.isTeammate || (await read($, mode)) !== 'auto' || (await read($, pin)) !== null) return next(e)
     if (!steered()) return next(e)
+    await credential($)
+    // Where a switch would rewrite the prompt cache, the subagent keeps the session's effort: nothing to classify.
+    if (aside(e.model ?? e.parentModel) !== null) return next(e)
     const resumed = e.resume ? byAgent.get(e.resume.agentId) : undefined
     const builtin = e.provider.plugin === 'engine'
     const named = explicit.has(e.tool_use_id)
@@ -666,7 +716,7 @@ export const register: Register = (on, options) => {
         d.model = e.model
         // A model the pilot leaves alone, or an effort that is not the one the session would hand down: declared.
         if (!managed(e.model)) d.source = 'skip'
-        else if (sessionEffort !== undefined && e.effort !== sessionEffort) d.source = 'own'
+        else if (typeof e.effort === 'number' || (sessionEffort !== undefined && e.effort !== sessionEffort)) d.source = 'own'
         await showAgent($, e.agentId, d, 'running')
       }
       const effort = d.source === 'auto' ? d.route?.effort : undefined
@@ -677,7 +727,8 @@ export const register: Register = (on, options) => {
       return result
     }
     await resume($)
-    sessionEffort = typeof e.effort === 'string' ? e.effort : sessionEffort
+    await credential($)
+    sessionEffort = e.effort ?? sessionEffort
     if ((await read($, model)) !== e.model) {
       await update($, model, () => e.model)
       await publish($)
@@ -694,7 +745,8 @@ export const register: Register = (on, options) => {
       // A message typed mid-turn goes with this request: read it now, so this request already goes at its effort.
       if (kind && texts.length) await delivered($, kind, texts.join('\n\n')).catch(err => $.ui.log(`effort-pilot: could not read the message typed mid-turn: ${String(err)}`))
     }
-    const effort = e.effort !== undefined ? await aim($, e.model) : undefined
+    // A number is the person's own effort: it goes as they set it.
+    const effort = typeof e.effort === 'string' ? await aim($, e.model) : undefined
     const began = await $.clock.now()
     const result = yield* next(effort ? { ...e, effort } : e)
     const took = (await $.clock.now()) - began
@@ -703,7 +755,13 @@ export const register: Register = (on, options) => {
     if (input) await update($, wire, () => effort ?? base)
     const sent = (await read($, wire)) ?? effort ?? base
     const u = result?.usage
-    if (u) await update($, acc, a => tallied(a, sent, base, u, took))
+    if (u) {
+      const cur = { model: e.model, effort: sent, messageCount: e.messageCount, prompt: promptOf(u), cacheRead: u.cache_read_input_tokens, at: began }
+      const prev = lastStep
+      lastStep = { ...cur, at: began + took }
+      if (managed(e.model) && cacheRewritten(prev, { ...cur, input })) await rewrote($, e.model, prev!, cur)
+      await update($, acc, a => tallied(a, sent, base, u, took))
+    }
     if (sent && u && managed(e.model)) {
       await update($, tally, t => ({ ...t, [sent]: { steps: (t[sent]?.steps ?? 0) + 1, out: (t[sent]?.out ?? 0) + u.output_tokens } }))
     }
@@ -752,6 +810,16 @@ export const register: Register = (on, options) => {
     const m = await read($, mode)
     const { Box, Text } = $.ui.resolve(e)
     const below = await next(e)
+    await credential($)
+    const why = aside(current)
+    if (why) {
+      return (
+        <Box flexDirection="column">
+          <Text dimColor>⏵ Effort Pilot: {asideText(current, why)}</Text>
+          {below}
+        </Box>
+      )
+    }
     if (!managed(current)) {
       if (r === null) return below
       return (
