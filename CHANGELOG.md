@@ -2,6 +2,11 @@
 
 All notable changes. Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions: [SemVer](https://semver.org/).
 
+## [1.3.0] — 2026-11-04
+
+- `/effort-pilot report` opens a pane beside the chat with charts: per phase, bars for pilot vs control (cost a turn, model time, fell short) with their 90% ranges and a verdict in words, turns by effort sent, the classifier's cost and wait, and the net. While a phase has too few turns, the pane says so and claims no verdict. A Refresh button (`r`) reads the records again. Under `claude -p`, or where no pane can be shown, the command returns the text report as before.
+- "Fell short" counts fewer false failures: the classifier no longer reads a new request, a change of taste (another colour, layout or order), a decision the person makes otherwise, or a problem in something the agent did not make as a sign that the previous turn failed.
+
 ## [1.2.1] — 2026-11-04
 
 - A plain question about a plan or an analysis (asking what was found, to explain it again, where it stands) now runs at the talk effort instead of keeping the plan's or the analysis's. Its answer is already in that work. A follow-up that needs new reasoning (a doubt, a new case), or says the work was wrong, keeps the work's effort, as does a word to go on ("continue"). The plan or analysis stays the work under way.
