@@ -40,12 +40,11 @@ const effective = atom({ plugin: 'effort-pilot', key: 'effective' } as const, nu
 const who = atom({ plugin: 'effort-pilot', key: 'who' } as const, 'person' as Who | null)
 const agents = atom({ plugin: 'effort-pilot', key: 'agents' } as const, [], { shape: 'agents-1' })
 // The effort in effect on the wire. Claude Code takes a new effort only on a request that carries new input (a
-// turn's first, or the first after a message typed mid-turn); on tool-result steps the one in effect stays.
+// turn's first, the first after a message typed mid-turn, a skill loading, a user-side line a plugin adds); on steps
+// whose only new input is tool results the one in effect stays.
 const wire = atom({ plugin: 'effort-pilot', key: 'wire' } as const, null as Effort | null)
-// An effort asked for mid-turn (an approved plan, plan mode entered) that waits for the next input to take effect.
 // Plan mode was on at some point of this main-loop turn: the turn records as a plan.
 const planned = atom({ plugin: 'effort-pilot', key: 'planned' } as const, false)
-const held = atom({ plugin: 'effort-pilot', key: 'held' } as const, null as Effort | null)
 const acc = atom({ plugin: 'effort-pilot', key: 'acc' } as const, EMPTY, { shape: 'acc-3' })
 
 /** Plan mode's effort: the plan effort, or the one the person asked for the planning. */
@@ -78,9 +77,7 @@ async function resume($: EngineInterface) {
 /** Publish the effort the next request goes at, or null when the person's own setting stands. */
 async function publish($: EngineInterface) {
   const [m, p, r, a, name] = [await read($, mode), await read($, pin), await read($, route), await read($, arm), await read($, model)]
-  const [w, h] = [await read($, wire), await read($, held)]
   const value = m !== 'auto' || !managed(name) ? null
-    : h && w ? { effort: w, source: 'auto' as const }
     : p ? { effort: p, source: 'pinned' as const }
     : a === 'auto' && (await read($, planMode)) ? { effort: await planLevel($), source: 'auto' as const }
     : r && a === 'auto' ? { effort: r.effort, source: 'auto' as const }
@@ -342,6 +339,31 @@ async function release($: EngineInterface) {
   if (r?.asked) await settle($, { phase: back.phase, hard: back.hard, effort: back.effort, why: 'back to the rule' })
 }
 
+/** The effort the pilot sets on the main loop's next request on this model; undefined where the person's own stands. */
+async function aim($: EngineInterface, name: string): Promise<Effort | undefined> {
+  const p = await read($, pin)
+  const live = (await read($, mode)) === 'auto' && managed(name) && (await read($, who)) !== null
+    && (p !== null || (await read($, arm)) === 'auto')
+  if (!live) return undefined
+  return p ?? ((await read($, planMode)) ? await planLevel($) : (await read($, route))?.effort)
+}
+
+/**
+ * An effort a tool call changed (a plan approved, plan mode entered) would wait through the steps whose only new input
+ * is tool results. A user-side line after the result is new input, as a skill's body is: the next request takes the
+ * effort. Only when that request goes at another effort than the one in effect. A context line does not do it: it
+ * goes as a system message, not new input.
+ */
+async function applyNow($: EngineInterface, purpose: string) {
+  const [w, next] = [await read($, wire), await aim($, await read($, model))]
+  if (!w || !next || next === w) return
+  const text = `Effort Pilot: reasoning effort is now ${next}, ${purpose}.`
+  // Never throws: the tool has already run, and the hook must hand back its result.
+  const added = await $.session.append({ message: { type: 'user', content: [{ type: 'text', text }] } }).catch(err => ({ deny: String(err) }))
+  if (added.deny) $.ui.log(`effort-pilot: ${next} waits for the next new input: ${added.deny}`)
+  else freshInput = true
+}
+
 /** An approved plan moves the work from planning to building: the build effort, not the planning one. */
 async function approved($: EngineInterface, plan: string) {
   if ((await read($, mode)) !== 'auto' || (await read($, pin)) !== null || !managed(await modelOf($))) return
@@ -538,7 +560,7 @@ export const register: Register = (on, options) => {
 
   // Plan mode is the engine's fact: the permission mode it hands every classic hook, read before each turn. Within
   // a turn, plan mode ends when an ExitPlanMode call is approved (the classic PostToolUse of that call still reads
-  // plan), and starts when EnterPlanMode runs.
+  // plan), and starts when EnterPlanMode runs. Either changes the effort from the very next request (applyNow).
   on('classic.UserPromptSubmit', async ($, e, next) => {
     await setPlan($, e.permission_mode === 'plan')
     return next(e)
@@ -548,9 +570,8 @@ export const register: Register = (on, options) => {
     if (e.agentId === undefined && !result.deny && !result.isError) {
       await approved($, result.text ?? '')
       await setPlan($, false)
-      const r = await read($, route)
-      if (r && r.effort !== (await read($, wire))) await update($, held, () => r.effort)
       await publish($)
+      await applyNow($, 'for carrying out the approved plan')
     }
     return result
   }).catch(($, e, next) => next(e))
@@ -558,15 +579,14 @@ export const register: Register = (on, options) => {
     const result = await next(e)
     if (e.agentId === undefined && !result.deny && !result.isError) {
       await setPlan($, true)
-      const level = await planLevel($)
-      if ((await read($, wire)) !== level) await update($, held, () => level)
       await publish($)
+      await applyNow($, 'for planning')
     }
     return result
   }).catch(($, e, next) => next(e))
 
   // A skill the main loop loads comes back as a message of its own beside the tool result: new input, so the next
-  // request takes the effort asked for (an approved plan's effort takes effect as a skill loads).
+  // request takes the effort asked for.
   on('tool.call', { tool: 'Skill' }, async ($, e, next) => {
     const result = await next(e)
     if (e.agentId === undefined && !result.deny && !result.isError) freshInput = true
@@ -674,23 +694,13 @@ export const register: Register = (on, options) => {
       // A message typed mid-turn goes with this request: read it now, so this request already goes at its effort.
       if (kind && texts.length) await delivered($, kind, texts.join('\n\n')).catch(err => $.ui.log(`effort-pilot: could not read the message typed mid-turn: ${String(err)}`))
     }
-    const r = await read($, route)
-    const p = await read($, pin)
-    const live = (await read($, mode)) === 'auto' && managed(e.model) && e.effort !== undefined && (await read($, who)) !== null
-      && (p !== null || (await read($, arm)) === 'auto')
-    const effort = live ? (p ?? ((await read($, planMode)) ? await planLevel($) : r?.effort)) : undefined
+    const effort = e.effort !== undefined ? await aim($, e.model) : undefined
     const began = await $.clock.now()
     const result = yield* next(effort ? { ...e, effort } : e)
     const took = (await $.clock.now()) - began
     const base = level(e.effort)
     // What actually went: the asked effort on a step with new input, else the one already in effect.
-    if (input) {
-      await update($, wire, () => effort ?? base)
-      if ((await read($, held)) !== null) {
-        await update($, held, () => null)
-        await publish($)
-      }
-    }
+    if (input) await update($, wire, () => effort ?? base)
     const sent = (await read($, wire)) ?? effort ?? base
     const u = result?.usage
     if (u) await update($, acc, a => tallied(a, sent, base, u, took))
@@ -781,11 +791,6 @@ export const register: Register = (on, options) => {
             </Text>
           ))}
         </Box>
-        {(await read($, held)) ? (
-          <Text color="warning">
-            running at {SHORT[(await read($, wire)) ?? 'high']} for now · {SHORT[(await read($, held))!]} from the next new input (your message, or a skill loading): Claude Code switches effort only then
-          </Text>
-        ) : null}
         <Text dimColor>{(await read($, planMode)) ? `plan mode → ${SHORT[await planLevel($)]} · ` : ''}{w === 'notification' ? 'notification · ' : ''}{r.why}{ms ? ` · classified in ${(ms / 1000).toFixed(1)}s` : ''}</Text>
         {shown.length ? (
           <Text dimColor>

@@ -129,8 +129,6 @@ declare module 'claude-code' {
       planned: boolean
       /** The effort in effect on the wire (Claude Code changes it only on a request with new input). */
       wire: Effort | null
-      /** An effort asked for mid-turn that waits for the next input (an approved plan, plan mode entered). */
-      held: Effort | null
       /** Whose turn the main loop runs now; null: a prompt the pilot does not route (left untouched, not recorded). */
       who: Who | null
       /** The subagents of this session, newest last (at most 8), for the band. */
