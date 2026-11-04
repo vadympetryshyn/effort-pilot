@@ -9,11 +9,11 @@ const reply = '{"phase":"plan","hard":false,"continues":false,"asked":"none","bu
 const usage = { input_tokens: 10, output_tokens: 5, cache_read_input_tokens: 0, cache_creation_input_tokens: 0 }
 
 /** The engine around a session on a managed model: counts the classifier calls and keeps the status lines shown. */
-function engine(on: On, name = 'claude-opus-5-5') {
+function engine(on: On, name = 'claude-opus-5-5', id = () => 'after-clear') {
   const seen = { calls: 0, status: [] as string[], sent: [] as unknown[] }
   on('command.register', () => ({ value: { command: 'effort-pilot' } }))
   on('session.model', () => ({ value: name }))
-  on('session.id', () => ({ value: 'after-clear' }))
+  on('session.id', () => ({ value: id() }))
   on('session.messages', () => ({ value: [] }))
   on('clock.now', () => ({ value: 0 }))
   on('model.complete', () => {
@@ -58,4 +58,71 @@ test('a model the pilot leaves alone stays alone after /clear too', async ($, on
   const seen = engine(on, 'claude-haiku-5-5')
   await $.prompt.submit({ text: 'Plan a CSV export for the reports page.', origin: { kind: 'composer' } } as never)
   expect(seen.calls).toBe(0)
+})
+
+/**
+ * A host whose plugin state is kept per session, as Claude Code keeps it: /clear ends the session, and the next
+ * conversation runs under a new id with empty state and no session.start.
+ */
+async function host($: Engine, on: On) {
+  let id = 'first'
+  const seen = engine(on, 'claude-opus-5-5', () => id)
+  const state = new Map<string, { value: unknown; version: number }>()
+  const at = (e: { plugin: string; key: string }) => `${id}/${e.plugin}/${e.key}`
+  on('state.get', (_$, e) => ({ value: state.get(at(e)) ?? { value: undefined, version: 0 } }) as never)
+  on('state.set', (_$, e) => {
+    const version = (state.get(at(e))?.version ?? 0) + 1
+    state.set(at(e), { value: (e as { value: unknown }).value, version })
+    return { value: { isSet: true, version } } as never
+  })
+  on('session.start', () => ({ cwd: '/' }))
+  on('session.end', (_$, e) => {
+    id = 'second'
+    return { sessionId: e.sessionId }
+  })
+  on('command.run', () => ({ text: '' }))
+  await $.session.start({ cwd: '/', surface: null, isInteractive: true })
+  return seen
+}
+const run = (command: string, args: string) => ({ command, args, origin: { kind: 'composer' as const }, presentation: { isFullscreen: false, columns: 80 } })
+const clear = ($: Engine) => $.session.end({ reason: 'clear', sessionId: 'first', resume: { id: 'first' } } as never)
+
+test('the pilot turned off stays off after /clear', async ($, on) => {
+  const seen = await host($, on)
+  await $.command.run(run('effort-pilot', 'off'))
+  await clear($)
+  await $.prompt.submit({ text: 'Plan a CSV export for the reports page.', origin: { kind: 'composer' } } as never)
+  expect(seen.calls).toBe(0)
+  expect((await $.command.run(run('effort-pilot', ''))).text).toBe('Effort Pilot: off')
+})
+
+test('an effort set by hand stays the person\'s after /clear: nothing classified, the request at their effort', async ($, on) => {
+  const seen = await host($, on)
+  await $.command.run(run('effort', 'high'))
+  await clear($)
+  await $.prompt.submit({ text: 'Plan a CSV export for the reports page.', origin: { kind: 'composer' } } as never)
+  await firstRequest($, 't1')
+  expect(seen.calls).toBe(0)
+  expect(seen.sent).toEqual(['high'])
+})
+
+test('after /clear, /effort-pilot on hands the effort back to the pilot', async ($, on) => {
+  const seen = await host($, on)
+  await $.command.run(run('effort', 'high'))
+  await clear($)
+  await $.command.run(run('effort-pilot', 'on'))
+  await $.prompt.submit({ text: 'Plan a CSV export for the reports page.', origin: { kind: 'composer' } } as never)
+  await firstRequest($, 't1')
+  expect(seen.calls).toBe(1)
+  expect(seen.sent).toEqual(['xhigh'])
+})
+
+test('with the pilot on, the first prompt after /clear is routed', async ($, on) => {
+  const seen = await host($, on)
+  await $.prompt.submit({ text: 'Say hello.', origin: { kind: 'composer' } } as never)
+  await clear($)
+  await $.prompt.submit({ text: 'Plan a CSV export for the reports page.', origin: { kind: 'composer' } } as never)
+  await firstRequest($, 't1')
+  expect(seen.calls).toBe(2)
+  expect(seen.sent).toEqual(['xhigh'])
 })

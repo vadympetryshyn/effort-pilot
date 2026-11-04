@@ -63,6 +63,18 @@ async function modelOf($: EngineInterface) {
   if (name) await update($, model, () => name)
   return name
 }
+// The person's say over the pilot (off or shadow, or an effort set by hand with /effort), carried over a /clear: the
+// new conversation starts with empty state and no session.start, while Claude Code keeps the effort they set. A new
+// process starts at auto.
+let cleared: { from: string; mode: Mode; pin: Effort | null } | null = null
+/** In the conversation a /clear started: take back the person's mode and pin from the one it ended. */
+async function resume($: EngineInterface) {
+  if (!cleared || (await $.session.id()) === cleared.from) return
+  const { mode: m, pin: p } = cleared
+  cleared = null
+  await update($, mode, () => m)
+  await update($, pin, () => p)
+}
 /** Publish the effort the next request goes at, or null when the person's own setting stands. */
 async function publish($: EngineInterface) {
   const [m, p, r, a, name] = [await read($, mode), await read($, pin), await read($, route), await read($, arm), await read($, model)]
@@ -430,7 +442,13 @@ export const register: Register = (on, options) => {
     return next(e)
   })
 
+  on('session.end', async ($, e, next) => {
+    if (e.reason === 'clear') cleared = { from: e.sessionId, mode: await read($, mode), pin: await read($, pin) }
+    return next(e)
+  }).catch(($, e, next) => next(e))
+
   on('command.run', { command: 'effort-pilot' }, async ($, e) => {
+    await resume($)
     const args = e.args.trim()
     const [verb = ''] = args.toLowerCase().split(/\s+/)
     // on also takes back an effort set by hand with /effort: one way to hand the effort back to the pilot.
@@ -470,6 +488,7 @@ export const register: Register = (on, options) => {
 
   // A person who sets /effort by hand takes over until `/effort-pilot on` (or `/effort auto`).
   on('command.run', { command: 'effort' }, async ($, e, next) => {
+    await resume($)
     const result = await next(e)
     const lv = e.args.trim().toLowerCase()
     const l = EFFORTS.find(x => x === lv)
@@ -498,6 +517,7 @@ export const register: Register = (on, options) => {
   // moment Claude Code applies an effort asked for mid-turn. If the turn ends before it is delivered, it starts a turn
   // of its own, classified then (turn.start).
   on('prompt.submit', async ($, e, next) => {
+    await resume($)
     if (e.origin.kind === 'sdk') interactive = false
     else if (LIVE.has(e.origin.kind)) interactive = true
     if (e.turnId !== undefined) {
@@ -592,6 +612,7 @@ export const register: Register = (on, options) => {
 
   on('turn.start', async ($, e, next) => {
     if (e.agentId === undefined) {
+      await resume($)
       // No prompt.submit before this turn and a message still queued: the turn is that message's, read only now.
       const kind = queued
       queued = null
@@ -633,6 +654,7 @@ export const register: Register = (on, options) => {
       if (result?.usage) d.acc = tallied(d.acc, effort ?? level(e.effort), level(e.effort), result.usage, took)
       return result
     }
+    await resume($)
     sessionEffort = typeof e.effort === 'string' ? e.effort : sessionEffort
     if ((await read($, model)) !== e.model) {
       await update($, model, () => e.model)
