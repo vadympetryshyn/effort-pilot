@@ -65,10 +65,11 @@ test('a model the pilot leaves alone stays alone after /clear too', async ($, on
  * conversation runs under a new id with empty state and no session.start.
  */
 async function host($: Engine, on: On) {
-  let id = 'first'
-  const seen = engine(on, 'claude-opus-5-5', () => id)
+  let n = 1
+  const id = () => `conversation-${n}`
+  const seen = engine(on, 'claude-opus-5-5', id)
   const state = new Map<string, { value: unknown; version: number }>()
-  const at = (e: { plugin: string; key: string }) => `${id}/${e.plugin}/${e.key}`
+  const at = (e: { plugin: string; key: string }) => `${id()}/${e.plugin}/${e.key}`
   on('state.get', (_$, e) => ({ value: state.get(at(e)) ?? { value: undefined, version: 0 } }) as never)
   on('state.set', (_$, e) => {
     const version = (state.get(at(e))?.version ?? 0) + 1
@@ -77,29 +78,28 @@ async function host($: Engine, on: On) {
   })
   on('session.start', () => ({ cwd: '/' }))
   on('session.end', (_$, e) => {
-    id = 'second'
+    n++
     return { sessionId: e.sessionId }
   })
   on('command.run', () => ({ text: '' }))
   await $.session.start({ cwd: '/', surface: null, isInteractive: true })
-  return seen
+  return { seen, clear: () => $.session.end({ reason: 'clear', sessionId: id(), resume: { id: id() } } as never) }
 }
 const run = (command: string, args: string) => ({ command, args, origin: { kind: 'composer' as const }, presentation: { isFullscreen: false, columns: 80 } })
-const clear = ($: Engine) => $.session.end({ reason: 'clear', sessionId: 'first', resume: { id: 'first' } } as never)
 
 test('the pilot turned off stays off after /clear', async ($, on) => {
-  const seen = await host($, on)
+  const { seen, clear } = await host($, on)
   await $.command.run(run('effort-pilot', 'off'))
-  await clear($)
+  await clear()
   await $.prompt.submit({ text: 'Plan a CSV export for the reports page.', origin: { kind: 'composer' } } as never)
   expect(seen.calls).toBe(0)
   expect((await $.command.run(run('effort-pilot', ''))).text).toBe('Effort Pilot: off')
 })
 
 test('an effort set by hand stays the person\'s after /clear: nothing classified, the request at their effort', async ($, on) => {
-  const seen = await host($, on)
+  const { seen, clear } = await host($, on)
   await $.command.run(run('effort', 'high'))
-  await clear($)
+  await clear()
   await $.prompt.submit({ text: 'Plan a CSV export for the reports page.', origin: { kind: 'composer' } } as never)
   await firstRequest($, 't1')
   expect(seen.calls).toBe(0)
@@ -107,9 +107,9 @@ test('an effort set by hand stays the person\'s after /clear: nothing classified
 })
 
 test('after /clear, /effort-pilot on hands the effort back to the pilot', async ($, on) => {
-  const seen = await host($, on)
+  const { seen, clear } = await host($, on)
   await $.command.run(run('effort', 'high'))
-  await clear($)
+  await clear()
   await $.command.run(run('effort-pilot', 'on'))
   await $.prompt.submit({ text: 'Plan a CSV export for the reports page.', origin: { kind: 'composer' } } as never)
   await firstRequest($, 't1')
@@ -118,11 +118,21 @@ test('after /clear, /effort-pilot on hands the effort back to the pilot', async 
 })
 
 test('with the pilot on, the first prompt after /clear is routed', async ($, on) => {
-  const seen = await host($, on)
+  const { seen, clear } = await host($, on)
   await $.prompt.submit({ text: 'Say hello.', origin: { kind: 'composer' } } as never)
-  await clear($)
+  await clear()
   await $.prompt.submit({ text: 'Plan a CSV export for the reports page.', origin: { kind: 'composer' } } as never)
   await firstRequest($, 't1')
   expect(seen.calls).toBe(2)
   expect(seen.sent).toEqual(['xhigh'])
+})
+
+test('two /clear in a row keep the person\'s choice too', async ($, on) => {
+  const { seen, clear } = await host($, on)
+  await $.command.run(run('effort-pilot', 'off'))
+  await clear()
+  await clear()
+  await $.prompt.submit({ text: 'Plan a CSV export for the reports page.', origin: { kind: 'composer' } } as never)
+  expect(seen.calls).toBe(0)
+  expect((await $.command.run(run('effort-pilot', ''))).text).toBe('Effort Pilot: off')
 })

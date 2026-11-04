@@ -443,6 +443,8 @@ export const register: Register = (on, options) => {
   })
 
   on('session.end', async ($, e, next) => {
+    // A conversation cleared before anything ran in it still holds the choice carried into it.
+    await resume($)
     if (e.reason === 'clear') cleared = { from: e.sessionId, mode: await read($, mode), pin: await read($, pin) }
     return next(e)
   }).catch(($, e, next) => next(e))
