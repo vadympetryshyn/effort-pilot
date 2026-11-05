@@ -41,13 +41,9 @@ export function managed(model: string | null | undefined, config: Config = DEFAU
  * A model not known here counts as per message: the usage check catches it.
  */
 export type Aside = 'model' | 'provider' | 'number' | 'usage'
-/**
- * perTurn: the person had the session's model take effort per message (CLAUDE_CODE_MODEL_CAPABILITIES=per_turn_effort):
- * no model is aside for its name then; the API still takes it first-party only, and the usage check catches a refusal.
- */
-export function wholeRequest(model: string | null | undefined, firstParty: boolean, effort?: string | number, perTurn = false): Aside | null {
+export function wholeRequest(model: string | null | undefined, firstParty: boolean, effort?: string | number): Aside | null {
   const m = (model ?? '').toLowerCase()
-  if (m && !perTurn) {
+  if (m) {
     // The older naming puts the generation first: claude-3-5-sonnet, claude-2.1.
     if (/claude-\d/.test(m)) return 'model'
     // The newer one puts the family first: claude-opus-4-6, claude-sonnet-4-5-20250929, claude-fable-5-1[1m]. A minor
@@ -64,10 +60,7 @@ export function wholeRequest(model: string | null | undefined, firstParty: boole
   return null
 }
 /** The effort goes per message on this model and setup: switching it costs no prompt cache. */
-export const perMessage = (model: string | null | undefined, firstParty: boolean, effort?: string | number, perTurn = false) =>
-  wholeRequest(model, firstParty, effort, perTurn) === null
-/** CLAUDE_CODE_MODEL_CAPABILITIES (comma- or space-separated) names per_turn_effort. */
-export const perTurnEffort = (capabilities: string | undefined) => (capabilities ?? '').toLowerCase().split(/[\s,]+/).includes('per_turn_effort')
+export const perMessage = (model: string | null | undefined, firstParty: boolean, effort?: string | number) => wholeRequest(model, firstParty, effort) === null
 /** One model under two spellings: case aside, and a trailing tag such as [1m] dropped. */
 export const sameModel = (a: string | null | undefined, b: string | null | undefined) => {
   const bare = (m: string | null | undefined) => (m ?? '').trim().toLowerCase().replace(/\[[^\]]*\]$/, '')

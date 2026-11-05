@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'claude-code/testing'
 
 import type { Route, Spend, Task, TurnRecord } from '../types'
-import { afterPlan, cacheRewritten, carry, configFrom, DEFAULTS, effortFor, forAgent, forNotice, managed, midTurn, parse, parseRecords, perMessage, perTurnEffort, report, sameModel, SYSTEM, wholeRequest } from './route'
+import { afterPlan, cacheRewritten, carry, configFrom, DEFAULTS, effortFor, forAgent, forNotice, managed, midTurn, parse, parseRecords, perMessage, report, sameModel, SYSTEM, wholeRequest } from './route'
 import type { Step } from './route'
 
 const route = (phase: Route['phase'], effort: Route['effort'], extra: Partial<Route> = {}): Route => ({ phase, hard: false, effort, why: 'w', ...extra })
@@ -321,26 +321,6 @@ describe('perMessage', () => {
     expect(perMessage('opus', true)).toBe(true)
     expect(perMessage('claude-opus-6', true)).toBe(true)
     expect(perMessage('', true)).toBe(true)
-  })
-  test('with per-turn effort turned on, Claude 4.x and Fable 5 take it per message, still first-party only', () => {
-    expect(wholeRequest('claude-opus-4-6', true, 'high', true)).toBe(null)
-    expect(wholeRequest('claude-fable-5', true, 'high', true)).toBe(null)
-    expect(wholeRequest('claude-opus-4-6', false, 'high', true)).toBe('provider')
-    expect(wholeRequest('claude-opus-4-6', true, 32000, true)).toBe('number')
-  })
-})
-
-describe('perTurnEffort', () => {
-  test('the capability is read from a comma- or space-separated list', () => {
-    expect(perTurnEffort('per_turn_effort')).toBe(true)
-    expect(perTurnEffort('something_else, per_turn_effort')).toBe(true)
-    expect(perTurnEffort('something_else per_turn_effort')).toBe(true)
-    expect(perTurnEffort('PER_TURN_EFFORT')).toBe(true)
-  })
-  test('unset, empty or another capability is not it', () => {
-    expect(perTurnEffort(undefined)).toBe(false)
-    expect(perTurnEffort('')).toBe(false)
-    expect(perTurnEffort('per_turn_effort_v2')).toBe(false)
   })
 })
 

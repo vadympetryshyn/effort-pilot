@@ -4,7 +4,7 @@ import type { EngineInterface, Register } from 'claude-code'
 import type { AgentRun, Config, Effort, Mode, Route, Spend, Tally, Task, TurnRecord, Who } from '../types'
 import {
   afterPlan, asideText, briefPrompt, cacheRewritten, commandText, unasked, carry, configFrom, DEFAULTS, EFFORTS, forAgent, forNotice, managed as managedBy,
-  midTurn, parse, parseRecords, perTurnEffort, prompt, promptOf, recentOf, report, reportData, sameModel, seedPrompt, SHORT, SYSTEM, wholeRequest,
+  midTurn, parse, parseRecords, prompt, promptOf, recentOf, report, reportData, sameModel, seedPrompt, SHORT, SYSTEM, wholeRequest,
 } from './route'
 import type { Aside, Step } from './route'
 import { board as drawBoard, PANE, PANE_TITLE } from './board'
@@ -22,13 +22,7 @@ let headless = false
 // Whether the session holds a first-party Anthropic credential: read once a process (a /clear keeps the process, a
 // reload asks again); undefined until read, and taken as first-party until then.
 let firstParty: boolean | undefined
-// Whether the person had the session's model take effort per message (CLAUDE_CODE_MODEL_CAPABILITIES=per_turn_effort,
-// in the shell or the settings' env): read once a process, beside the credential; undefined until read, taken as not.
-let perTurn: boolean | undefined
 async function credential($: EngineInterface) {
-  if (perTurn === undefined) {
-    perTurn = perTurnEffort(await $.env.get('CLAUDE_CODE_MODEL_CAPABILITIES').catch(() => undefined))
-  }
   if (firstParty !== undefined) return
   firstParty = await $.session.authorize().then(a => a !== null, err => {
     $.ui.log(`effort-pilot: could not read the session's credential: ${String(err)}`)
@@ -41,7 +35,7 @@ const rewrites = new Set<string>()
 function aside(model: string | null | undefined): Aside | null {
   if (!managedBy(model, config)) return null
   if (rewrites.has(model ?? '')) return 'usage'
-  return wholeRequest(model, firstParty !== false, sessionEffort, perTurn === true)
+  return wholeRequest(model, firstParty !== false, sessionEffort)
 }
 // A model the settings name, where the effort goes per message: a switch there costs no prompt cache. Elsewhere it is
 // one setting of the whole request, every switch rewrites the conversation's cache, and the person's own effort stands.

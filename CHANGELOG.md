@@ -7,7 +7,6 @@ All notable changes. Format: [Keep a Changelog](https://keepachangelog.com/en/1.
 - `ultrathink` runs its turn at `xhigh`, as Claude Code does. The classifier used to read the keyword as asking for `max`, and the pilot then sent `max` in place of Claude Code's `xhigh`. A message that only quotes or talks about the keyword asks for nothing.
 - A built-in subagent on another model than the session's is set by its brief again. Since Claude Code 2.1.317 such a subagent starts at that model's saved effort or its default, which the pilot took for an effort chosen for that agent and left alone. On the session's own model, an effort other than the session's is still the agent's own, as is a number.
 - With `CLAUDE_CODE_SUBAGENT_EFFORT` set, subagents run at the effort it names: the pilot makes no classifier call for them and leaves them as they start.
-- With `CLAUDE_CODE_MODEL_CAPABILITIES=per_turn_effort` set (in the shell or the `env` of your settings), Claude 4.x and Fable 5 take effort per message, and the pilot sets it there instead of standing aside. Without an Anthropic login, or with an effort set as a number, it still stands aside, and if a switch is seen to rewrite the prompt cache it stands aside on that model as before.
 
 ## [1.3.1] — 2026-11-05
 

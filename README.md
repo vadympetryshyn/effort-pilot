@@ -46,8 +46,7 @@ Claude Code (tested on 2.1.318).
 message, and a switch costs no prompt cache. Elsewhere effort is one setting of the whole request, and every switch
 would rewrite the conversation's prompt cache: on Claude 4.x and older, Fable 5, sessions on Bedrock, Vertex, Foundry or
 a gateway, and an effort set as a number. There Effort Pilot leaves your own effort alone (no classifier call either),
-and the band says so. With `CLAUDE_CODE_MODEL_CAPABILITIES=per_turn_effort` set (in your shell or the `env` of your
-settings), Claude 4.x and Fable 5 take effort per message too with an Anthropic login, and Effort Pilot sets it there. On a model it does not know, it watches the cache: if a switch is seen to rewrite it, it stands
+and the band says so. On a model it does not know, it watches the cache: if a switch is seen to rewrite it, it stands
 aside on that model for the rest of the session.
 
 **Update:** `claude plugin marketplace update effort-pilot && claude plugin update effort-pilot@effort-pilot`, then
