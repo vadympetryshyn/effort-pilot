@@ -3,7 +3,7 @@ import type { EngineInterface, Register } from 'claude-code'
 
 import type { AgentRun, Config, Effort, Mode, Route, Spend, Tally, Task, TurnRecord, Who } from '../types'
 import {
-  afterPlan, asideText, briefPrompt, cacheRewritten, unasked, carry, configFrom, DEFAULTS, EFFORTS, forAgent, forNotice, managed as managedBy,
+  afterPlan, asideText, briefPrompt, cacheRewritten, commandText, unasked, carry, configFrom, DEFAULTS, EFFORTS, forAgent, forNotice, managed as managedBy,
   midTurn, parse, parseRecords, prompt, promptOf, recentOf, report, reportData, seedPrompt, SHORT, SYSTEM, wholeRequest,
 } from './route'
 import type { Aside, Step } from './route'
@@ -452,7 +452,16 @@ let submitted = false
 // A slash command the person typed, from its prompt.submit until the engine expands it for the model (skill.prompt):
 // a skill or prompt command, routed then from its line as typed. A built-in that runs on its own (/clear, /model) raises
 // no prompt.submit, and one that is never expanded is never routed. Cleared as its turn starts.
-let typed: { name: string; text: string; kind: string } | null = null
+let typed: { name: string; text: string; args: string; kind: string } | null = null
+/**
+ * A typed command the engine did not expand for the model is not routed: whatever turn it starts is no one's the pilot
+ * read, so the last turn's `who` must not label it, and the person's own effort stands for it.
+ */
+async function unrouted($: EngineInterface) {
+  if (!typed) return
+  typed = null
+  await update($, who, () => null)
+}
 const byBrief = new Map<string, Decision>()
 const byAgent = new Map<string, Decision>()
 const explicit = new Set<string>()
@@ -623,9 +632,9 @@ export const register: Register = (on, options) => {
     if (e.isMeta) return next(e)
     // A skill or prompt command is expanded for the model beneath (skill.prompt) and routed there.
     if (e.command) {
-      typed = { name: e.command.name, text: e.text, kind: e.origin.kind }
+      typed = { name: e.command.name, text: e.text, args: e.command.args, kind: e.origin.kind }
       const result = await next(e)
-      typed = null
+      await unrouted($)
       return result
     }
     await begin($, e.text, e.origin.kind)
@@ -633,12 +642,13 @@ export const register: Register = (on, options) => {
   }).catch(($, e, next) => next(e))
 
   // The engine expands the skill or prompt command the person typed: a turn of model work on their request, routed
-  // like a typed prompt from the command's line (`/name args`). A skill the Skill tool loads mid-turn is not one.
+  // like a typed prompt from the command's line (`/name args`); with no arguments, with what the command says it does.
+  // A skill the Skill tool loads mid-turn is not one.
   on('skill.prompt', async ($, e, next) => {
     const t = typed
     if (t && e.skill === t.name) {
       typed = null
-      await begin($, t.text, t.kind).catch(err => $.ui.log(`effort-pilot: could not route the command: ${String(err)}`))
+      await begin($, commandText(t.text, t.args, e.frontmatter?.description, e.text), t.kind).catch(err => $.ui.log(`effort-pilot: could not route the command: ${String(err)}`))
     }
     return next(e)
   }).catch(($, e, next) => next(e))
@@ -727,7 +737,7 @@ export const register: Register = (on, options) => {
       const kind = queued
       queued = null
       waiting = []
-      typed = null
+      await unrouted($)
       if (!submitted && kind && e.text.trim()) await begin($, e.text, kind)
       submitted = false
       const at = await $.clock.now()

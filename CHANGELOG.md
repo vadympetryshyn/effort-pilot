@@ -5,7 +5,7 @@ All notable changes. Format: [Keep a Changelog](https://keepachangelog.com/en/1.
 ## [1.3.1] — 2026-11-05
 
 - A word to go on during a build ("done", "ok", "continue") keeps the build's effort. It used to take the talk effort, and the agent then carried on building at `low`. A question about the build still runs at the talk effort, as it builds nothing.
-- A skill or prompt command typed with a request (`/some-plugin:create-plan <what you want>`) is classified like any typed message, from its line as typed. It used to be skipped, so the turn ran at the effort of the turn before and its record was not marked as yours. Built-in commands that run on their own (`/clear`, `/compact`, `/model`, `/effort`, `/effort-pilot`) are still left alone.
+- A skill or prompt command you type (`/some-plugin:create-plan <what you want>`, or a built-in one such as `/init`) is classified like any typed message, from its line as typed. Typed with no request after it, it is classified by what the command says it does (its description, else the start of its instructions). It used to be skipped, so the turn ran at the effort of the turn before and its record was not marked as yours. Built-in commands that run on their own (`/clear`, `/compact`, `/model`, `/effort`, `/effort-pilot`) are still left alone, and a turn the pilot did not read is no longer recorded under the previous turn's label.
 
 ## [1.3.0] — 2026-11-04
 

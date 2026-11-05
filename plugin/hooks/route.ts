@@ -188,6 +188,20 @@ const BUILD: readonly Phase[] = ['implement', 'fix']
 const THINK: readonly Phase[] = ['plan', 'analyze']
 const TALK: readonly Phase[] = ['chat', 'trivial']
 
+/** How much of a command's own prompt the classifier reads when the command has no description. */
+export const COMMAND_BODY = 800
+
+/**
+ * What the classifier reads for a slash command the person typed: its line as typed, where the arguments are their
+ * request. With no arguments the line says nothing of the work, so what the command says it does goes with it: its
+ * description, else the start of the prompt it expands to.
+ */
+export function commandText(line: string, args: string, description: unknown, body: string): string {
+  if (args.trim()) return line
+  const about = typeof description === 'string' && description.trim() ? description.trim() : body.trim().slice(0, COMMAND_BODY)
+  return about ? `${line}\n\nWhat the command does: ${about}` : line
+}
+
 /** The work without the effort the person asked for: the rule's effort again. */
 export function unasked(task: Task, config: Config = DEFAULTS): Task {
   const { asked: _a, build: _b, ...rest } = task
