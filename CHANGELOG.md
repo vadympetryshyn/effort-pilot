@@ -2,6 +2,11 @@
 
 All notable changes. Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions: [SemVer](https://semver.org/).
 
+## [1.3.1] — 2026-11-05
+
+- A word to go on during a build ("done", "ok", "continue") keeps the build's effort. It used to take the talk effort, and the agent then carried on building at `low`. A question about the build still runs at the talk effort, as it builds nothing.
+- A skill or prompt command typed with a request (`/some-plugin:create-plan <what you want>`) is classified like any typed message, from its line as typed. It used to be skipped, so the turn ran at the effort of the turn before and its record was not marked as yours. Built-in commands that run on their own (`/clear`, `/compact`, `/model`, `/effort`, `/effort-pilot`) are still left alone.
+
 ## [1.3.0] — 2026-11-04
 
 - `/effort-pilot report` opens a pane beside the chat with charts: per phase, bars for pilot vs control (cost a turn, model time, fell short) with their 90% ranges and a verdict in words, turns by effort sent, the classifier's cost and wait, and the net. While a phase has too few turns, the pane says so and claims no verdict. A Refresh button (`r`) reads the records again. Under `claude -p`, or where no pane can be shown, the command returns the text report as before.

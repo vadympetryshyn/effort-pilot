@@ -30,6 +30,22 @@ describe('carry', () => {
     expect(r.route.effort).toBe('low')
     expect(r.task.phase).toBe('implement')
   })
+  test('a word to go on during a build keeps the build\'s effort', () => {
+    for (const text of ['done', 'ok', 'continue']) {
+      const r = carry(task('implement', 'medium'), route('trivial', 'low', { continues: true }), text)
+      expect(r.route.effort).toBe('medium')
+      expect(r.route.phase).toBe('implement')
+      expect(r.route.kept).toBe(true)
+      expect(r.task.phase).toBe('implement')
+    }
+    expect(carry(task('fix', 'high'), route('trivial', 'low', { continues: true }), 'go on').route.effort).toBe('high')
+  })
+  test('a question about a build still takes its own effort at the default build effort', () => {
+    const r = carry(task('implement', 'medium'), route('chat', 'low', { continues: true }), 'which file holds the button?')
+    expect(r.route.effort).toBe('low')
+    expect(r.task.phase).toBe('implement')
+    expect(r.task.effort).toBe('medium')
+  })
   test('a question about an analysis takes its own effort; the analysis stays the work', () => {
     const r = carry(task('analyze', 'high'), route('chat', 'low', { continues: true }), 'so in plain words, what was the cause?')
     expect(r.route.effort).toBe('low')

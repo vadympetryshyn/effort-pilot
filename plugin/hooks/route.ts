@@ -201,6 +201,8 @@ export function unasked(task: Task, config: Config = DEFAULTS): Task {
  * - a question about the work (chat) takes its own effort and leaves the work under way in place: about a build, answering
  *   it builds nothing; about a plan or an analysis, its answer is in the work so far, while one that needs new reasoning
  *   comes as analyze and one that says the work fell short as faulted, and both keep the work's effort;
+ * - a word to go on ("done", "ok", "continue": trivial) keeps the work's effort, a build's as a plan's: the agent goes on
+ *   with that work;
  * - a side question or a closing word takes its own effort and leaves the work under way in place;
  * - a new task, or one that needs more, takes its own effort.
  */
@@ -215,8 +217,9 @@ export function carry(task: Task | null, pick: Route, text: string, config: Conf
   if (pick.continues && task.asked && !(THINK.includes(task.phase) && BUILD.includes(pick.phase))) {
     return { route: { ...pick, effort: task.asked, kept: true, asked: task.asked, why: `you asked for ${task.asked}` }, task }
   }
-  // A question or a word about building (implement, fix) takes its own light effort: answering it builds nothing.
-  if (pick.continues && TALK.includes(pick.phase) && BUILD.includes(task.phase)) {
+  // A question about building (implement, fix) takes its own light effort: answering it builds nothing. A word to go on
+  // ("done", "continue") comes as trivial and keeps the build's effort below: the agent builds on.
+  if (pick.continues && pick.phase === 'chat' && BUILD.includes(task.phase)) {
     return { route: { ...pick, why: `${pick.why} (a question about the build: its own effort)` }, task }
   }
   // A question about thinking work (plan, analyze) takes its own effort too: its answer is already in that work. A

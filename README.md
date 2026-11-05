@@ -64,7 +64,7 @@ Before each turn a small, fast model (Haiku, ≈ $0.0002 a turn) reads your mess
 | approve a plan | implement | `medium` — the thinking went into the plan |
 | ask a quick question, commit, push, run a command, a tiny edit | chat / trivial | `low` |
 
-A band above the prompt shows the effort now, how it got there and why. Follow-ups that push the work on keep its effort, and a side question doesn't drag it down; a plain question about the work (what was found, where it stands) runs at `low` — the answer is already there.
+A band above the prompt shows the effort now, how it got there and why. Follow-ups that push the work on keep its effort (a word to go on, like "done" or "continue", too), and a side question doesn't drag it down; a plain question about the work (what was found, where it stands) runs at `low` — the answer is already there. A skill or prompt command you type with your request (`/create-plan …`) is read like any message; built-in commands (`/clear`, `/model`) are left alone.
 
 ## Features
 

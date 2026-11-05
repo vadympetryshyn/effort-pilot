@@ -449,6 +449,10 @@ let waiting: string[] = []
 let lastPick: Route | null = null
 // A prompt.submit ran while the session was idle: the turn that follows is that prompt's, already routed.
 let submitted = false
+// A slash command the person typed, from its prompt.submit until the engine expands it for the model (skill.prompt):
+// a skill or prompt command, routed then from its line as typed. A built-in that runs on its own (/clear, /model) raises
+// no prompt.submit, and one that is never expanded is never routed. Cleared as its turn starts.
+let typed: { name: string; text: string; kind: string } | null = null
 const byBrief = new Map<string, Decision>()
 const byAgent = new Map<string, Decision>()
 const explicit = new Set<string>()
@@ -601,7 +605,8 @@ export const register: Register = (on, options) => {
   // A message typed while a turn runs is not read: it waits in the queue, and once delivered it can change the effort
   // only for the rest of that turn, while the next prompt is classified anyway. It counts only as new input, the
   // moment Claude Code applies an effort asked for mid-turn. If the turn ends before it is delivered, it starts a turn
-  // of its own, classified then (turn.start).
+  // of its own, classified then (turn.start). A slash command typed while a turn runs waits until it ends and is
+  // submitted then, as from an idle session: routed as below.
   on('prompt.submit', async ($, e, next) => {
     await resume($)
     if (e.origin.kind === 'sdk') interactive = false
@@ -615,8 +620,26 @@ export const register: Register = (on, options) => {
       return next(e)
     }
     submitted = true
-    if (e.command || e.isMeta) return next(e)
+    if (e.isMeta) return next(e)
+    // A skill or prompt command is expanded for the model beneath (skill.prompt) and routed there.
+    if (e.command) {
+      typed = { name: e.command.name, text: e.text, kind: e.origin.kind }
+      const result = await next(e)
+      typed = null
+      return result
+    }
     await begin($, e.text, e.origin.kind)
+    return next(e)
+  }).catch(($, e, next) => next(e))
+
+  // The engine expands the skill or prompt command the person typed: a turn of model work on their request, routed
+  // like a typed prompt from the command's line (`/name args`). A skill the Skill tool loads mid-turn is not one.
+  on('skill.prompt', async ($, e, next) => {
+    const t = typed
+    if (t && e.skill === t.name) {
+      typed = null
+      await begin($, t.text, t.kind).catch(err => $.ui.log(`effort-pilot: could not route the command: ${String(err)}`))
+    }
     return next(e)
   }).catch(($, e, next) => next(e))
 
@@ -704,6 +727,7 @@ export const register: Register = (on, options) => {
       const kind = queued
       queued = null
       waiting = []
+      typed = null
       if (!submitted && kind && e.text.trim()) await begin($, e.text, kind)
       submitted = false
       const at = await $.clock.now()
