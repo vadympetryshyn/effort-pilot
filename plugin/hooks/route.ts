@@ -41,9 +41,13 @@ export function managed(model: string | null | undefined, config: Config = DEFAU
  * A model not known here counts as per message: the usage check catches it.
  */
 export type Aside = 'model' | 'provider' | 'number' | 'usage'
-export function wholeRequest(model: string | null | undefined, firstParty: boolean, effort?: string | number): Aside | null {
+/**
+ * perTurn: the person had the session's model take effort per message (CLAUDE_CODE_MODEL_CAPABILITIES=per_turn_effort):
+ * no model is aside for its name then; the API still takes it first-party only, and the usage check catches a refusal.
+ */
+export function wholeRequest(model: string | null | undefined, firstParty: boolean, effort?: string | number, perTurn = false): Aside | null {
   const m = (model ?? '').toLowerCase()
-  if (m) {
+  if (m && !perTurn) {
     // The older naming puts the generation first: claude-3-5-sonnet, claude-2.1.
     if (/claude-\d/.test(m)) return 'model'
     // The newer one puts the family first: claude-opus-4-6, claude-sonnet-4-5-20250929, claude-fable-5-1[1m]. A minor
@@ -60,7 +64,15 @@ export function wholeRequest(model: string | null | undefined, firstParty: boole
   return null
 }
 /** The effort goes per message on this model and setup: switching it costs no prompt cache. */
-export const perMessage = (model: string | null | undefined, firstParty: boolean, effort?: string | number) => wholeRequest(model, firstParty, effort) === null
+export const perMessage = (model: string | null | undefined, firstParty: boolean, effort?: string | number, perTurn = false) =>
+  wholeRequest(model, firstParty, effort, perTurn) === null
+/** CLAUDE_CODE_MODEL_CAPABILITIES (comma- or space-separated) names per_turn_effort. */
+export const perTurnEffort = (capabilities: string | undefined) => (capabilities ?? '').toLowerCase().split(/[\s,]+/).includes('per_turn_effort')
+/** One model under two spellings: case aside, and a trailing tag such as [1m] dropped. */
+export const sameModel = (a: string | null | undefined, b: string | null | undefined) => {
+  const bare = (m: string | null | undefined) => (m ?? '').trim().toLowerCase().replace(/\[[^\]]*\]$/, '')
+  return bare(a) !== '' && bare(a) === bare(b)
+}
 
 /** How the band, the status and stats say the pilot stands aside on a model (after "Effort Pilot: "). */
 export function asideText(model: string, why: Aside) {
@@ -122,7 +134,7 @@ export const SYSTEM = `You classify one message a person sends to a coding agent
 hard (only for implement and fix): true when many files, tricky logic, a bug of unknown cause, or risky data; else false.
 continues: true only when the message is about the same subject as the work under way, and that work is not finished: it adds a requirement, refines or narrows it, asks a question about it or about the agent's findings so far, answers the agent's question, or pushes back on its reasoning. false when it is about another subject (a side question, however short, is not part of the work), starts a different task, only closes the work (thanks, ok, a recap after it is done). On the first turn it is false.
 restate: true when the message only asks to restate the agent's last answer with nothing new to work out: translate it, shorten it, rephrase it simpler, reformat it, repeat it. A question about the answer, a doubt about it or a request to check it is not restate.
-asked: the effort level the person tells the agent to think at itself, now, for the work this message hands it, in any words or language ("do it on high", "hazlo en xhigh", "medium is enough", "think at max"); for a message that asks for a plan, the level named for making the plan ("plan it on max"). none when the message names no level for it. Talking about effort is not asking: a level named as a default, a rule or a setting (for a tool, a plugin, an autopilot, a config), as what some kind of work should get in general, or as the subject of the code to change ("make the autopilot default to high for fixes", "nach einem Plan soll es medium sein" are not asking); a model's name. When unsure, none.
+asked: the effort level the person tells the agent to think at itself, now, for the work this message hands it, in any words or language ("do it on high", "hazlo en xhigh", "medium is enough", "think at max"); for a message that asks for a plan, the level named for making the plan ("plan it on max"). none when the message names no level for it. Talking about effort is not asking: a level named as a default, a rule or a setting (for a tool, a plugin, an autopilot, a config), as what some kind of work should get in general, or as the subject of the code to change ("make the autopilot default to high for fixes", "nach einem Plan soll es medium sein" are not asking); a model's name. When unsure, none. The word "ultrathink" (Claude Code's own keyword) is asked xhigh, never max, in a message that asks for a plan too, unless it is quoted or talked about.
 asked is auto when the person takes back a level they named before and lets the effort be chosen again ("back to auto", "vuelve a automático").
 build: the effort level the person tells the agent to carry out a plan at, once it is made ("plan it, then implement on high"); none otherwise. The same: talking about effort in general is not asking.
 faulted: true when the message says the agent's last work fell short: what it did or answered is wrong, broken, does not work, missed or ignored part of what the person had asked, misunderstood it, or must be redone ("не працює", "das ist nicht, was ich wollte", "still broken", "you forgot X", "I did not ask you to…"). Not faulted: a new request or requirement, even one the person forgot to give before; a change of taste in work that works (another colour, layout, order or wording, "I don't like how it looks"); the person deciding otherwise than the agent proposed; a problem in something the agent's last work did not make (a tool, a plugin, another system); a question or a change of mind. When unsure, false.

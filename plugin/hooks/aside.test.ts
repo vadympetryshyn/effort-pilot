@@ -11,9 +11,10 @@ type Usage = { input_tokens: number; output_tokens: number; cache_read_input_tok
 const usage = (cacheRead: number, cacheWrite = 0): Usage => ({ input_tokens: 10, output_tokens: 5, cache_read_input_tokens: cacheRead, cache_creation_input_tokens: cacheWrite })
 
 /** A session on a model and a credential: counts classifier calls and records what each request carried. */
-function engine(on: On, model: string, credential: boolean, answers: Usage[] = []) {
+function engine(on: On, model: string, credential: boolean, answers: Usage[] = [], env: Record<string, string> = {}) {
   const seen = { calls: 0, sent: [] as unknown[], toasts: [] as string[], replies: [BUILD, CHAT, BUILD, CHAT] }
   let now = 0
+  on('env.get', (_$, e) => ({ value: env[e.name] }))
   on('command.register', () => ({ value: { command: 'effort-pilot' } }))
   on('session.model', () => ({ value: model }))
   on('session.authorize', () => ({ value: credential ? { handle: 'h', kind: 'bearer' as const } : null }))
@@ -91,6 +92,35 @@ test('a numeric effort is the person\'s: it goes untouched', async ($, on) => {
   await turn($, 'claude-opus-5-5', 20000)
   await turn($, 'claude-opus-5-5', 20000, 3)
   expect(seen.sent).toEqual([20000, 20000])
+})
+
+const PER_TURN = { CLAUDE_CODE_MODEL_CAPABILITIES: 'per_turn_effort' }
+
+test('with per-turn effort turned on, Claude 4.x switches per message too', async ($, on) => {
+  const seen = engine(on, 'claude-opus-4-6', true, [], PER_TURN)
+  await start($)
+  await turn($, 'claude-opus-4-6')
+  expect(seen.calls).toBe(1)
+  expect(seen.sent).toEqual(['medium'])
+  expect(await status($)).not.toContain('off on')
+})
+
+test('with per-turn effort turned on, Fable 5 switches per message too', async ($, on) => {
+  const seen = engine(on, 'claude-fable-5', true, [], PER_TURN)
+  await start($)
+  await turn($, 'claude-fable-5')
+  expect(seen.calls).toBe(1)
+  expect(seen.sent).toEqual(['medium'])
+  expect(await status($)).not.toContain('off on')
+})
+
+test('with per-turn effort turned on but no first-party credential, the pilot still stands aside', async ($, on) => {
+  const seen = engine(on, 'claude-opus-4-6', false, [], PER_TURN)
+  await start($)
+  await turn($, 'claude-opus-4-6')
+  expect(seen.calls).toBe(0)
+  expect(seen.sent).toEqual(['high'])
+  expect(await band($)).toContain('no first-party Anthropic login')
 })
 
 test('a subagent on a whole-request model is not classified', async ($, on) => {

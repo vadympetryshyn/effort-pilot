@@ -46,7 +46,8 @@ Claude Code (tested on 2.1.318).
 message, and a switch costs no prompt cache. Elsewhere effort is one setting of the whole request, and every switch
 would rewrite the conversation's prompt cache: on Claude 4.x and older, Fable 5, sessions on Bedrock, Vertex, Foundry or
 a gateway, and an effort set as a number. There Effort Pilot leaves your own effort alone (no classifier call either),
-and the band says so. On a model it does not know, it watches the cache: if a switch is seen to rewrite it, it stands
+and the band says so. With `CLAUDE_CODE_MODEL_CAPABILITIES=per_turn_effort` set (in your shell or the `env` of your
+settings), Claude 4.x and Fable 5 take effort per message too with an Anthropic login, and Effort Pilot sets it there. On a model it does not know, it watches the cache: if a switch is seen to rewrite it, it stands
 aside on that model for the rest of the session.
 
 **Update:** `claude plugin marketplace update effort-pilot && claude plugin update effort-pilot@effort-pilot`, then
@@ -68,9 +69,9 @@ A band above the prompt shows the effort now, how it got there and why. Follow-u
 
 ## Features
 
-- 🗣️ **Just say it.** "do this on max", "medium is enough", "plan it, then build on high" — in any language, typed or dictated. "back to auto" hands it back.
+- 🗣️ **Just say it.** "do this on max", "medium is enough", "plan it, then build on high" — in any language, typed or dictated. `ultrathink` runs that work at `xhigh`, as Claude Code does. "back to auto" hands it back.
 - 🧭 **Plan mode** runs at `xhigh`; the approved plan is built at `medium`.
-- 🤖 **Subagents** get their own effort (never below the build effort, `medium` by default).
+- 🤖 **Subagents** get their own effort, on the session's model or another one (never below the build effort, `medium` by default). An effort the Agent call names, or `CLAUDE_CODE_SUBAGENT_EFFORT`, is left alone.
 - 🔔 **Background results** continue at the effort of the work they serve.
 - ✋ **You stay in charge.** `/effort <level>` pins it; `/effort-pilot on` resumes.
 - 🔒 **Private.** Nothing leaves your machine but the Haiku call. Your effort setting is changed per message; the model is never changed, and the prompt cache stays intact (where a switch would rewrite it, Effort Pilot stands aside).

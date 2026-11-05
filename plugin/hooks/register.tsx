@@ -4,7 +4,7 @@ import type { EngineInterface, Register } from 'claude-code'
 import type { AgentRun, Config, Effort, Mode, Route, Spend, Tally, Task, TurnRecord, Who } from '../types'
 import {
   afterPlan, asideText, briefPrompt, cacheRewritten, commandText, unasked, carry, configFrom, DEFAULTS, EFFORTS, forAgent, forNotice, managed as managedBy,
-  midTurn, parse, parseRecords, prompt, promptOf, recentOf, report, reportData, seedPrompt, SHORT, SYSTEM, wholeRequest,
+  midTurn, parse, parseRecords, perTurnEffort, prompt, promptOf, recentOf, report, reportData, sameModel, seedPrompt, SHORT, SYSTEM, wholeRequest,
 } from './route'
 import type { Aside, Step } from './route'
 import { board as drawBoard, PANE, PANE_TITLE } from './board'
@@ -22,7 +22,13 @@ let headless = false
 // Whether the session holds a first-party Anthropic credential: read once a process (a /clear keeps the process, a
 // reload asks again); undefined until read, and taken as first-party until then.
 let firstParty: boolean | undefined
+// Whether the person had the session's model take effort per message (CLAUDE_CODE_MODEL_CAPABILITIES=per_turn_effort,
+// in the shell or the settings' env): read once a process, beside the credential; undefined until read, taken as not.
+let perTurn: boolean | undefined
 async function credential($: EngineInterface) {
+  if (perTurn === undefined) {
+    perTurn = perTurnEffort(await $.env.get('CLAUDE_CODE_MODEL_CAPABILITIES').catch(() => undefined))
+  }
   if (firstParty !== undefined) return
   firstParty = await $.session.authorize().then(a => a !== null, err => {
     $.ui.log(`effort-pilot: could not read the session's credential: ${String(err)}`)
@@ -35,7 +41,7 @@ const rewrites = new Set<string>()
 function aside(model: string | null | undefined): Aside | null {
   if (!managedBy(model, config)) return null
   if (rewrites.has(model ?? '')) return 'usage'
-  return wholeRequest(model, firstParty !== false, sessionEffort)
+  return wholeRequest(model, firstParty !== false, sessionEffort, perTurn === true)
 }
 // A model the settings name, where the effort goes per message: a switch there costs no prompt cache. Elsewhere it is
 // one setting of the whole request, every switch rewrites the conversation's cache, and the person's own effort stands.
@@ -465,8 +471,10 @@ async function unrouted($: EngineInterface) {
 const byBrief = new Map<string, Decision>()
 const byAgent = new Map<string, Decision>()
 const explicit = new Set<string>()
-// The session's own effort as the main loop last saw it (before the pilot's rewrite): what a subagent inherits.
+// The session's own effort as the main loop last saw it (before the pilot's rewrite), and its model: what a subagent
+// on that model inherits. One on another model starts at that model's saved effort or its default.
 let sessionEffort: string | number | undefined
+let sessionModel: string | undefined
 // The main loop's last request, for the cache check (cacheRewritten).
 let lastStep: Step | null = null
 // Measuring's one baseline is high: a control turn only where the person's own effort is high (unknown before the
@@ -702,7 +710,8 @@ export const register: Register = (on, options) => {
     if (aside(e.model ?? e.parentModel) !== null) return next(e)
     const resumed = e.resume ? byAgent.get(e.resume.agentId) : undefined
     const builtin = e.provider.plugin === 'engine'
-    const named = explicit.has(e.tool_use_id)
+    // An effort the Agent call names, or the one the person set for every subagent: theirs, nothing to classify.
+    const named = explicit.has(e.tool_use_id) || !!(await $.env.get('CLAUDE_CODE_SUBAGENT_EFFORT').catch(() => undefined))?.trim()
     const d: Decision = {
       route: null, task: resumed?.task ?? null, arm: 'auto', source: 'own', type: e.subagentType,
       description: e.description, checked: false, acc: { ...EMPTY, at: await $.clock.now() }, model: '',
@@ -716,8 +725,8 @@ export const register: Register = (on, options) => {
         d.task = carried.task
         d.arm = differs(d.route.effort) && Math.random() < share() ? 'control' : 'auto'
         d.source = d.arm === 'auto' ? 'auto' : 'control'
-        // Shown on the agent's line in the transcript when it will hold: no model named, so the session's own.
-        if (d.source === 'auto' && e.model === undefined && managed(e.parentModel)) description = `${e.description} · effort ${SHORT[d.route.effort]}`
+        // Shown on the agent's line in the transcript when it will hold: on a model the pilot steers.
+        if (d.source === 'auto' && managed(e.model ?? e.parentModel)) description = `${e.description} · effort ${SHORT[d.route.effort]}`
       }
     }
     byBrief.set(e.prompt, d)
@@ -763,9 +772,12 @@ export const register: Register = (on, options) => {
       if (!d.checked) {
         d.checked = true
         d.model = e.model
-        // A model the pilot leaves alone, or an effort that is not the one the session would hand down: declared.
+        // A model the pilot leaves alone, a number, or on the session's model an effort that is not the one the session
+        // hands down: declared. On another model the effort is that model's saved one or its default, which no one
+        // chose for this agent: steered by its brief.
         if (!managed(e.model)) d.source = 'skip'
-        else if (typeof e.effort === 'number' || (sessionEffort !== undefined && e.effort !== sessionEffort)) d.source = 'own'
+        else if (typeof e.effort === 'number') d.source = 'own'
+        else if (sessionEffort !== undefined && sameModel(e.model, sessionModel) && e.effort !== sessionEffort) d.source = 'own'
         await showAgent($, e.agentId, d, 'running')
       }
       const effort = d.source === 'auto' ? d.route?.effort : undefined
@@ -778,6 +790,7 @@ export const register: Register = (on, options) => {
     await resume($)
     await credential($)
     sessionEffort = e.effort ?? sessionEffort
+    sessionModel = e.model
     if ((await read($, model)) !== e.model) {
       await update($, model, () => e.model)
       await publish($)
