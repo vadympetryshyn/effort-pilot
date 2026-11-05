@@ -5,7 +5,8 @@ import type { Engine } from 'claude-code/testing'
 import { DAY, slotFile } from './store'
 
 // A notification (a background task finished, another Claude session's message) is classified with work under way:
-// a result to relay goes at its own pick (at least medium), one the agent must think through at the work's effort.
+// a result to relay goes at its own pick (at least medium; a finished task's during a plan or an analysis at least
+// high), one the agent must think through at the work's effort.
 // Each turn's record keeps the classifier's own pick and whether the work's effort was kept.
 
 const NOW = 20_400 * DAY + 3_600_000
@@ -60,13 +61,29 @@ async function turn($: Engine, turnId: string, text: string, kind: string) {
 
 const agentDone = '<task-notification> <task-id>a1</task-id> <status>completed</status> <summary>Agent "Add the export button" finished</summary> <result>The export button is in and its test passes.</result> </task-notification>'
 const shellFailed = '<task-notification> <task-id>b1</task-id> <status>failed</status> <summary>Background command "Run the tests" failed with exit code 1</summary> </task-notification>'
+const monitorEvent = '<task-notification> <task-id>m1</task-id> <summary>Monitor event: "build log"</summary> <event>compiled 12 files</event> </task-notification>'
 const records = (seen: { files: Map<string, string> }) => (seen.files.get(`${STORE}/${slotFile(NOW)}`) ?? '').split('\n').filter(Boolean).map(l => JSON.parse(l))
 
 describe('a notification with work under way', () => {
-  test('an agent\'s result to relay goes at its own pick, at least medium, and the record keeps the pick', { options: { measure: true, controlShare: 0 } }, async ($, on) => {
+  test('an agent\'s result during an analysis, read as chat, goes at high', async ($, on) => {
     const seen = await session($, on, [pick('analyze'), pick('chat')])
     await turn($, 't1', 'Why does the export time out on large reports?', 'composer')
     await turn($, 't2', agentDone, 'task-notification')
+    expect(seen.calls).toBe(2)
+    expect(seen.sent).toEqual(['high', 'high'])
+  })
+
+  test('an agent\'s result during a plan, read as chat, goes at high', async ($, on) => {
+    const seen = await session($, on, [pick('plan'), pick('chat')])
+    await turn($, 't1', 'Plan the CSV export of the reports page.', 'composer')
+    await turn($, 't2', agentDone, 'task-notification')
+    expect(seen.sent).toEqual(['xhigh', 'high'])
+  })
+
+  test('a monitor event (no status) during an analysis, read as chat, goes at medium, and the record keeps the pick', { options: { measure: true, controlShare: 0 } }, async ($, on) => {
+    const seen = await session($, on, [pick('analyze'), pick('chat')])
+    await turn($, 't1', 'Why does the export time out on large reports?', 'composer')
+    await turn($, 't2', monitorEvent, 'task-notification')
     expect(seen.calls).toBe(2)
     expect(seen.sent).toEqual(['high', 'medium'])
     const [person, notice] = records(seen)

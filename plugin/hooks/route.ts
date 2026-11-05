@@ -316,15 +316,16 @@ export function forAgent(pick: Route, config: Config = DEFAULTS): Route {
 }
 
 /**
- * What a notification's envelope says of the task it reports on, read from the fields the engine writes: whether the
- * task failed (its status), and whether it was a background command (a shell, not an agent).
+ * What a notification's envelope says of the task it reports on, read from the fields the engine writes: whether a task
+ * finished (the envelope has a status; a monitor's event has none), whether it failed, and whether it was a background
+ * command (a shell, not an agent).
  */
-export type Notice = { failed: boolean; command: boolean }
+export type Notice = { finished: boolean; failed: boolean; command: boolean }
 export function noticeOf(text: string): Notice {
   // The envelope's own tags come first: a result quoted inside it comes after them.
   const status = /<status>\s*([a-z_]+)\s*<\/status>/.exec(text)?.[1]
   const summary = /<summary>([\s\S]*?)<\/summary>/.exec(text)?.[1] ?? ''
-  return { failed: status === 'failed', command: /^\s*Background command\b/.test(summary) }
+  return { finished: status !== undefined, failed: status === 'failed', command: /^\s*Background command\b/.test(summary) }
 }
 
 /**
@@ -332,11 +333,11 @@ export function noticeOf(text: string): Notice {
  * reads plan or analyze, or a hard build), when the task failed, when a background command finished (its output is the
  * work's own next step, read only by the agent), or when the work is a hard build (what an agent hands back there often
  * leads into its risky or tricky part, which its text does not show); with no pick, too. A hard build step goes at least at its own
- * effort, above a plain build's. Otherwise (an agent's result to relay or hand to the next agent) its own pick, at
- * least the build effort while work is under way and never above the work's effort. With no work known, the
- * notification's own pick.
+ * effort, above a plain build's. Otherwise (an agent's result to relay or hand to the next agent) its own pick, never
+ * above the work's effort and at least the build effort; a finished task's result during a plan or an analysis at
+ * least the analyze effort (high), since it feeds that thinking. With no work known, the notification's own pick.
  */
-export function forNotice(pick: Route | null, task: Task | null, notice: Notice = { failed: false, command: false }, config: Config = DEFAULTS): Route | null {
+export function forNotice(pick: Route | null, task: Task | null, notice: Notice = { finished: false, failed: false, command: false }, config: Config = DEFAULTS): Route | null {
   if (!task) return pick
   // A hard step the work under way did not need yet (a check failed in a plain build) goes at its own effort.
   const keep = (why: string): Route => pick?.hard && RANK[pick.effort] > RANK[task.effort]
@@ -347,7 +348,9 @@ export function forNotice(pick: Route | null, task: Task | null, notice: Notice 
   if (notice.command) return keep('a command finished: at the work under way')
   if (task.hard) return keep(`notification: ${pick.why} (in a hard build: at the work under way)`)
   if (THINK.includes(pick.phase) || pick.hard) return keep(`notification: ${pick.why} (${pick.hard ? `hard ${pick.phase}` : pick.phase}: at the work under way)`)
-  const floor = RANK[pick.effort] < RANK[config.build] ? config.build : pick.effort
+  // A finished task's result during a plan or an analysis feeds that thinking: at least the analyze effort.
+  const least = THINK.includes(task.phase) && notice.finished ? config.analyze : config.build
+  const floor = RANK[pick.effort] < RANK[least] ? least : pick.effort
   const effort = RANK[floor] > RANK[task.effort] ? task.effort : floor
   return { ...pick, effort, continues: true, why: `notification: ${pick.why} (${effort})` }
 }
