@@ -83,15 +83,19 @@ export const promptOf = (u: { input_tokens: number; cache_read_input_tokens: num
   u.input_tokens + u.cache_read_input_tokens + u.cache_creation_input_tokens
 /**
  * A request with new input went at another effort than the one before it, on the same model, with the conversation
- * only grown and the cache still alive and read, yet read less than half of the prompt before it from the cache:
- * the effort is one setting of the whole request here.
+ * only grown and the cache still alive and read, yet lost part of the prompt before it from the cache: the effort is
+ * one setting of the whole request here. With the cache kept, the request reads back about all of the prompt before
+ * it (Claude Code caches up to the last message); a rewrite often reads only the system and tools prefix, which on a
+ * short conversation is over half the prompt. So it is judged by what was not read back: at least CACHED tokens (a
+ * smaller loss costs nothing worth acting on) and more than a fifth of the prompt before it.
  */
 export function cacheRewritten(prev: Step | null, cur: Step & { input: boolean }) {
   if (!prev || !cur.input) return false
   if (cur.effort === null || prev.effort === null || cur.effort === prev.effort) return false
   if (cur.model !== prev.model || cur.messageCount < prev.messageCount) return false
   if (cur.at - prev.at >= LIFE || prev.cacheRead <= 0 || prev.prompt < CACHED) return false
-  return cur.cacheRead < prev.prompt / 2
+  const lost = prev.prompt - cur.cacheRead
+  return lost >= CACHED && lost > prev.prompt / 5
 }
 
 /**

@@ -351,6 +351,15 @@ describe('cacheRewritten', () => {
   test('a switch that reads the cache marks nothing', () => {
     expect(cacheRewritten(prev, cur({ cacheRead: 49_000 }))).toBe(false)
   })
+  test('a switch that reads back only the prefix of a short conversation marks the model', () => {
+    expect(cacheRewritten({ ...prev, prompt: 27_500, cacheRead: 27_000 }, cur({ prompt: 28_000, cacheRead: 14_598 }))).toBe(true)
+  })
+  test('a switch that keeps the cache of a short conversation marks nothing', () => {
+    expect(cacheRewritten({ ...prev, prompt: 16_000, cacheRead: 15_500 }, cur({ prompt: 16_500, cacheRead: 15_900 }))).toBe(false)
+  })
+  test('a switch that loses less than the cache\'s smallest block on a small prompt marks nothing', () => {
+    expect(cacheRewritten({ ...prev, prompt: 12_000, cacheRead: 11_500 }, cur({ prompt: 12_500, cacheRead: 9_000 }))).toBe(false)
+  })
   test('a miss with no switch marks nothing', () => {
     expect(cacheRewritten(prev, cur({ effort: 'high', cacheRead: 0 }))).toBe(false)
   })

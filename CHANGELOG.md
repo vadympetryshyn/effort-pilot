@@ -2,6 +2,10 @@
 
 All notable changes. Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions: [SemVer](https://semver.org/).
 
+## [1.4.1] — 2026-11-05
+
+- On a model the pilot does not know, a switch that rewrites the prompt cache on a short conversation is now caught, and the pilot stands aside on that model. It used to look for a cache read under half of the prompt before, which the system prompt and tools alone pass on a short conversation; it now looks at how much of that prompt was not read back.
+
 ## [1.4.0] — 2026-11-05
 
 - `ultrathink` runs its turn at `xhigh`, as Claude Code does. The classifier used to read the keyword as asking for `max`, and the pilot then sent `max` in place of Claude Code's `xhigh`. A message that only quotes or talks about the keyword asks for nothing.
