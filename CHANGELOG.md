@@ -2,6 +2,15 @@
 
 All notable changes. Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions: [SemVer](https://semver.org/).
 
+## [1.5.0] — 2026-11-05
+
+- Notifications while work is under way are classified instead of always keeping the work's effort. An agent's result the agent only relays or hands to the next agent runs at its own effort: at least `medium`, never above the work's. The work's effort is kept when the result needs thinking (a plan, an analysis, a hard step), reports a failure, is a background command's output, or arrives in a hard build. During a plan or an analysis, a finished task's result never goes below `high`.
+- A message from another Claude session is routed as a notification. It used to run at the session's own effort.
+- `hard` follows what the agent itself does in the turn: briefing or relaying is not hard; a risky operation is. An order to act (deploy, push, pay, delete) is a build step, never chat. "Why is this slow", "how does it work under the hood" and "should we…" are analysis.
+- A subagent brief that only finds, lists or collects runs at `medium`; one that weighs what it finds (a cause, a design, a recommendation) at the analysis effort; one that acts on the world (sends, posts, writes production data) at the hard build effort.
+- Turn records keep the classifier's own pick (`pick`) and whether the work's effort was kept (`kept`).
+- On a labelled set of 420 messages, turns that need `high` get it in about 84% of runs (was 76%), and turns that need less get less more often.
+
 ## [1.4.1] — 2026-11-05
 
 - On a model the pilot does not know, a switch that rewrites the prompt cache on a short conversation is now caught, and the pilot stands aside on that model. It used to look for a cache read under half of the prompt before, which the system prompt and tools alone pass on a short conversation; it now looks at how much of that prompt was not read back.
