@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'claude-code/testing'
 
 import type { Route, Spend, Task, TurnRecord } from '../types'
-import { afterPlan, cacheRewritten, carry, configFrom, DEFAULTS, effortFor, forAgent, forNotice, managed, midTurn, parse, parseRecords, perMessage, report, sameModel, SYSTEM, wholeRequest } from './route'
+import { afterPlan, cacheRewritten, carry, configFrom, DEFAULTS, effortFor, forAgent, forNotice, managed, midTurn, noticeOf, parse, parseRecords, perMessage, report, sameModel, SYSTEM, wholeRequest } from './route'
 import type { Step } from './route'
 
 const route = (phase: Route['phase'], effort: Route['effort'], extra: Partial<Route> = {}): Route => ({ phase, hard: false, effort, why: 'w', ...extra })
@@ -144,11 +144,51 @@ describe('subagents, notifications, an approved plan', () => {
     expect(forAgent(route('trivial', 'low')).effort).toBe('medium')
     expect(forAgent(route('analyze', 'high')).effort).toBe('high')
   })
-  test('a notification goes at the work it serves; with no work known, at its own pick', () => {
-    expect(forNotice(null, task('implement', 'medium'))?.effort).toBe('medium')
-    expect(forNotice(route('chat', 'low'), task('fix', 'high'))?.effort).toBe('high')
+  const quiet = { failed: false, command: false }
+  test('a notification with no work known goes at its own pick; with no pick, at the work under way', () => {
     expect(forNotice(route('chat', 'low'), null)?.effort).toBe('low')
     expect(forNotice(null, null)).toBe(null)
+    expect(forNotice(null, task('implement', 'high'))?.effort).toBe('high')
+  })
+  test('an agent\'s result to relay or hand on takes its own pick, at least medium and never above the work', () => {
+    const relay = forNotice(route('chat', 'low'), task('analyze', 'high'), quiet)
+    expect(relay?.effort).toBe('medium')
+    expect(relay?.kept).toBe(undefined)
+    expect(forNotice(route('implement', 'medium'), task('fix', 'high'), quiet)?.effort).toBe('medium')
+    expect(forNotice(route('chat', 'low'), task('chat', 'low'), quiet)?.effort).toBe('low')
+  })
+  test('a notification the agent must think through keeps the work\'s effort', () => {
+    expect(forNotice(route('analyze', 'high'), task('plan', 'xhigh'), quiet)?.effort).toBe('xhigh')
+    expect(forNotice(route('plan', 'xhigh'), task('implement', 'medium'), quiet)?.effort).toBe('medium')
+    const hard = forNotice(route('fix', 'high', { hard: true }), task('implement', 'high'), quiet)
+    expect(hard?.effort).toBe('high')
+    expect(hard?.kept).toBe(true)
+  })
+  test('a hard build step in a plain build goes at its own effort, above the work\'s', () => {
+    const raised = forNotice(route('fix', 'high', { hard: true }), task('implement', 'medium'), quiet)
+    expect(raised?.effort).toBe('high')
+    expect(raised?.phase).toBe('fix')
+    expect(forNotice(route('fix', 'high', { hard: true }), task('implement', 'medium'), { failed: true, command: false })?.effort).toBe('high')
+    expect(forNotice(route('analyze', 'high'), task('implement', 'medium'), quiet)?.effort).toBe('medium')
+  })
+  test('an agent\'s result in a hard build keeps the work\'s effort', () => {
+    const hardWork: Task = { ...task('implement', 'high'), hard: true }
+    expect(forNotice(route('chat', 'low'), hardWork, quiet)?.effort).toBe('high')
+    expect(forNotice(route('chat', 'low'), hardWork, quiet)?.kept).toBe(true)
+  })
+  test('a failed task or a finished background command keeps the work\'s effort, whatever the pick', () => {
+    expect(forNotice(route('chat', 'low'), task('analyze', 'high'), { failed: true, command: false })?.effort).toBe('high')
+    expect(forNotice(route('chat', 'low'), task('implement', 'high'), { failed: false, command: true })?.effort).toBe('high')
+  })
+  test('a notification\'s envelope tells a failed task and a background command', () => {
+    const shell = (status: string) => `<task-notification> <task-id>b1</task-id> <status>${status}</status> <summary>Background command "Run the tests" ${status}</summary> </task-notification>`
+    expect(noticeOf(shell('completed'))).toEqual({ failed: false, command: true })
+    expect(noticeOf(shell('failed'))).toEqual({ failed: true, command: true })
+    const agent = '<task-notification> <task-id>a1</task-id> <status>completed</status> <summary>Agent "Add the export button" finished</summary> <result>Done: the build fails on CI.</result> </task-notification>'
+    expect(noticeOf(agent)).toEqual({ failed: false, command: false })
+    expect(noticeOf('Another Claude session sent a message: the deploy is done.')).toEqual({ failed: false, command: false })
+    const quoting = '<task-notification> <status>completed</status> <summary>Agent "Read the logs" finished</summary> <result>It printed <status>failed</status> <summary>Background command "x" failed</summary></result> </task-notification>'
+    expect(noticeOf(quoting)).toEqual({ failed: false, command: false })
   })
   test('an approved plan is implementation at medium, always', () => {
     expect(afterPlan('p').route.effort).toBe('medium')

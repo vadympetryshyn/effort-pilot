@@ -80,6 +80,10 @@ export type TurnRecord = {
   faulted?: boolean
   /** The effort was the one the person asked for: not the pilot's pick, left out of the comparison. */
   asked?: true
+  /** The classifier's own pick for the turn's message, before the rules after it (absent: not classified). */
+  pick?: { phase: Phase; hard: boolean }
+  /** The rules kept the effort of the work under way rather than the turn's own pick. */
+  kept?: true
   /** A turn recorded by a test run: left out of the report. */
   test?: true
 }

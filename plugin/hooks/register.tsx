@@ -4,7 +4,7 @@ import type { EngineInterface, Register } from 'claude-code'
 import type { AgentRun, Config, Effort, Mode, Route, Spend, Tally, Task, TurnRecord, Who } from '../types'
 import {
   afterPlan, asideText, briefPrompt, cacheRewritten, commandText, unasked, carry, configFrom, DEFAULTS, EFFORTS, forAgent, forNotice, managed as managedBy,
-  midTurn, parse, parseRecords, prompt, promptOf, recentOf, report, reportData, sameModel, seedPrompt, SHORT, SYSTEM, wholeRequest,
+  midTurn, noticeOf, parse, parseRecords, prompt, promptOf, recentOf, report, reportData, sameModel, seedPrompt, SHORT, SYSTEM, wholeRequest,
 } from './route'
 import type { Aside, Step } from './route'
 import { board as drawBoard, PANE, PANE_TITLE } from './board'
@@ -154,19 +154,19 @@ async function begin($: EngineInterface, text: string, kind: string) {
     await update($, arm, () => 'auto' as const)
     // Only what the person asks for: the planning's effort, or the build's once the plan is approved.
     const said = await classify($, text, true).catch(() => null)
+    turnPick = said
     await asks($, said)
     await publish($)
     return
   }
   if (!notice) await seed($, text).catch(err => $.ui.log(`effort-pilot: could not read the session so far: ${String(err)}`))
-  // A notification with work under way goes at that work's effort: nothing to classify.
   const work = await read($, task)
-  const pick = notice && work ? null : await classify($, text, true, notice).catch(() => null)
-  if (notice && work) await update($, latency, () => 0)
+  const pick = await classify($, text, true, notice).catch(() => null)
   const share0 = share()
   const carried = pick && !notice ? carry(work, pick, text, config) : null
-  const next = notice ? forNotice(pick, work) : carried?.route ?? null
+  const next = notice ? forNotice(pick, work, noticeOf(text), config) : carried?.route ?? null
   lastPick = notice ? null : pick
+  turnPick = pick
   // A control turn only where the pilot would send another effort than the person's own: a turn where the two
   // agree runs the same either way and tells the comparison nothing.
   // An effort the person asked for is theirs: never a control turn.
@@ -276,10 +276,10 @@ async function reset($: EngineInterface) {
 }
 
 // Who may be routed: what a person typed, and the notifications that start a turn of their own (a background task
-// finished, a scheduled prompt fired). A headless session (claude -p, the Agent SDK) is left alone unless the
-// headless setting is on.
+// finished, a scheduled prompt fired, another Claude session's message). A headless session (claude -p, the Agent SDK)
+// is left alone unless the headless setting is on.
 const LIVE = new Set(['composer', 'bridge'])
-const NOTICE = new Set(['task-notification', 'scheduled-trigger'])
+const NOTICE = new Set(['task-notification', 'scheduled-trigger', 'peer', 'peer-send-message'])
 // Whether a person is at the prompt, as session.start or the last prompt's origin told; null until known (a module
 // reloaded mid-session), then taken as interactive.
 let interactive: boolean | null = null
@@ -430,6 +430,8 @@ const describe = (r: Route) => `${SHORT[r.effort]} ${r.phase}${r.hard ? ' (hard)
 // Only built-in agents that inherited the session's effort, on a managed model, are set: by their brief, not their type.
 type Decision = {
   route: Route | null
+  /** The classifier's own pick for the brief, before the rules after it. */
+  pick: Route | null
   task: Task | null
   arm: 'auto' | 'control'
   source: AgentRun['source']
@@ -447,6 +449,9 @@ let queued: string | null = null
 let waiting: string[] = []
 // The classification of the prompt that started this turn: what it asked for holds if it enters plan mode.
 let lastPick: Route | null = null
+// The classifier's own pick for the message that started this turn (a notification's too), before the rules after it:
+// the turn's record keeps it beside the effort the rules sent.
+let turnPick: Route | null = null
 // A prompt.submit ran while the session was idle: the turn that follows is that prompt's, already routed.
 let submitted = false
 // A slash command the person typed, from its prompt.submit until the engine expands it for the model (skill.prompt):
@@ -492,6 +497,7 @@ async function keepAgent($: EngineInterface, d: Decision, reason: string) {
     base: d.acc.base, sent: d.acc.sent, model: d.model, steps: d.acc.steps, out: d.acc.out, input: d.acc.input,
     cacheRead: d.acc.cacheRead, cacheWrite: d.acc.cacheWrite, ms: Math.round((await $.clock.now()) - d.acc.at), reason,
     who: 'agent', agent: d.type, trace: d.acc.trace, gen: Math.round(d.acc.gen), ...(r.asked ? { asked: true as const } : {}),
+    ...picked(d.pick, r),
   })
 }
 
@@ -509,6 +515,14 @@ function tallied(a: typeof EMPTY, sent: Effort | null, base: Effort | null, u: {
     trace: a.trace.length < 60 ? [...a.trace, [sent, u.output_tokens] as [Effort | null, number]] : a.trace,
   }
 }
+
+/**
+ * What a record keeps of how its effort was reached: the classifier's own pick and whether the rules kept the work's
+ * effort over it. Not the why: the classifier words it from the prompt, and records hold no prompt text.
+ */
+const picked = (pick: Route | null, r: Route) => ({
+  ...(pick ? { pick: { phase: pick.phase, hard: pick.hard } } : {}), ...(r.kept ? { kept: true as const } : {}),
+})
 
 const level = (x: unknown): Effort | null => (typeof x === 'string' ? (EFFORTS.find(l => l === x) ?? null) : null)
 
@@ -707,7 +721,7 @@ export const register: Register = (on, options) => {
     // An effort the Agent call names, or the one the person set for every subagent: theirs, nothing to classify.
     const named = explicit.has(e.tool_use_id) || !!(await $.env.get('CLAUDE_CODE_SUBAGENT_EFFORT').catch(() => undefined))?.trim()
     const d: Decision = {
-      route: null, task: resumed?.task ?? null, arm: 'auto', source: 'own', type: e.subagentType,
+      route: null, pick: null, task: resumed?.task ?? null, arm: 'auto', source: 'own', type: e.subagentType,
       description: e.description, checked: false, acc: { ...EMPTY, at: await $.clock.now() }, model: '',
     }
     let description = e.description
@@ -716,6 +730,7 @@ export const register: Register = (on, options) => {
       if (pick) {
         const carried = d.task ? carry(d.task, pick, e.prompt, config) : { route: pick, task: { phase: pick.phase, hard: pick.hard, effort: pick.effort, text: e.prompt } }
         d.route = forAgent(carried.route, config)
+        d.pick = pick
         d.task = carried.task
         d.arm = differs(d.route.effort) && Math.random() < share() ? 'control' : 'auto'
         d.source = d.arm === 'auto' ? 'auto' : 'control'
@@ -836,7 +851,9 @@ export const register: Register = (on, options) => {
       return result
     }
     const faulted = lastPick?.faulted
+    const own = turnPick
     lastPick = null
+    turnPick = null
     await update($, lastAnswer, () => result.text.slice(-1500))
     const r = await read($, route)
     const a = await read($, acc)
@@ -853,6 +870,7 @@ export const register: Register = (on, options) => {
         base: a.base, sent: a.sent, model: m, steps: a.steps, out: a.out, input: a.input,
         cacheRead: a.cacheRead, cacheWrite: a.cacheWrite, ms: Math.round((await $.clock.now()) - a.at), reason: e.reason, cls,
         who: w, trace: a.trace, gen: Math.round(a.gen), ...(faulted ? { faulted: true } : {}), ...(r.asked ? { asked: true as const } : {}),
+        ...picked(own, r),
       }).catch(err => $.ui.log(`effort-pilot: could not keep the turn: ${String(err)}`))
     }
     return result

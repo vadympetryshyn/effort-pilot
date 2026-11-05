@@ -123,13 +123,13 @@ export const SYSTEM = `You classify one message a person sends to a coding agent
 {"phase":"plan|analyze|implement|fix|trivial|chat","hard":true|false,"continues":true|false,"restate":true|false,"asked":"low|medium|high|xhigh|max|auto|none","build":"low|medium|high|xhigh|max|none","faulted":true|false,"why":"<=8 words"}
 
 - plan: ONLY when the person explicitly asks you to make a plan: to plan, design or lay out how something will be built before building it, or to redo a plan. Anything else is not plan: a request to build or change something ("can you make it so that…", "add…", "¿puedes hacer que…?") is implement; a question, an analysis, research or "think about X" without asking for a plan is analyze or chat.
-- analyze: reason through a hard question or investigate something, with nothing to build: a subtle bug's cause to explain, a trade-off to judge, a proof, "think carefully whether…".
-- implement: carry out an agreed plan or build a clear, scoped feature or change; write tests; refactor. "go", "do it", "давай", "ja, setz das um" right after a plan is implement.
+- analyze: reason through a hard question or investigate something, with nothing to build: a subtle bug's cause to explain, a trade-off to judge, a proof, "think carefully whether…". Also: why something is slow or fails, how something works or will work under the hood, whether a claim is technically true (and what to tell a user about it), whether we could or should do something ("don't you think we should…?").
+- implement: carry out an agreed plan or build a clear, scoped feature or change; write tests; refactor. "go", "do it", "давай", "ja, setz das um" right after a plan is implement. A message that orders an action (start it, test it now, buy or pay, delete, merge, push, deploy, log in) is implement or fix, never chat or trivial.
 - fix: correct, finish or adjust something already built: a bug, a failing test, a review comment, "this is wrong, redo X".
-- trivial: a tiny edit (rename, typo, one line, a config value), run one command, "ok"/"continue" with nothing new to build.
-- chat: a question about what was done, an explanation, a summary, status, small talk.
-hard (only for implement and fix): true when many files, tricky logic, a bug of unknown cause, or risky data; else false.
-continues: true only when the message is about the same subject as the work under way, and that work is not finished: it adds a requirement, refines or narrows it, asks a question about it or about the agent's findings so far, answers the agent's question, or pushes back on its reasoning. false when it is about another subject (a side question, however short, is not part of the work), starts a different task, only closes the work (thanks, ok, a recap after it is done). On the first turn it is false.
+- trivial: a tiny edit (rename, typo, one line, a config value); a word to go on with nothing new to build: "ok", "continue", or "done"/"готово" when the person did what the agent asked of them (trivial even after a plan).
+- chat: a question about what was done, an explanation of the agent's answer, a summary, status, small talk.
+hard (only for implement and fix): what the agent itself will do on this turn, not how hard or important the subject is. true when it does the hard part itself: investigates a bug of unknown cause, writes tricky or many-file code (a redesign or rework of a screen or flow too), or runs a risky operation (merge, push, deploy, deletes, production data, money): an order to push, merge, deploy, release or delete is hard. false when it briefs or messages a subagent, relays a result, records a decision, runs a known command, or changes a look, wording, order or colour.
+continues: true only when the message is about the same subject as the work under way, and that work is not finished: it adds a requirement, refines or narrows it, asks a question about it or about the agent's findings so far, answers the agent's question, or pushes back on its reasoning; a word to go on ("done", "ok", "готово") when the agent's last answer said more of that work is to come. false when it is about another subject (a side question, however short, is not part of the work), starts a different task, only closes the work (thanks, ok, a recap after it is done). On the first turn it is false.
 restate: true when the message only asks to restate the agent's last answer with nothing new to work out: translate it, shorten it, rephrase it simpler, reformat it, repeat it. A question about the answer, a doubt about it or a request to check it is not restate.
 asked: the effort level the person tells the agent to think at itself, now, for the work this message hands it, in any words or language ("do it on high", "hazlo en xhigh", "medium is enough", "think at max"); for a message that asks for a plan, the level named for making the plan ("plan it on max"). none when the message names no level for it. Talking about effort is not asking: a level named as a default, a rule or a setting (for a tool, a plugin, an autopilot, a config), as what some kind of work should get in general, or as the subject of the code to change ("make the autopilot default to high for fixes", "nach einem Plan soll es medium sein" are not asking); a model's name. When unsure, none. The word "ultrathink" (Claude Code's own keyword) is asked xhigh, never max, in a message that asks for a plan too, unless it is quoted or talked about.
 asked is auto when the person takes back a level they named before and lets the effort be chosen again ("back to auto", "vuelve a automático").
@@ -138,7 +138,7 @@ faulted: true when the message says the agent's last work fell short: what it di
 plan costs the most: when unsure whether the person asked for a plan, they did not. When unsure between two phases, pick the cheaper.
 The person may write in any language. Judge by what the turn will make the agent do, not by the message's length.`
 
-const NOTICE_LINE = 'This message is not from the person: it is an automatic notification (a background task or agent finished, a scheduled prompt fired). Classify what the agent will do next with it: only relaying or summing up a result to the person is chat; carrying on the work under way is that work\'s phase. continues: true when it belongs to the work under way.'
+const NOTICE_LINE = 'This message is not from the person: it is an automatic notification (a background task or agent finished, a scheduled prompt fired) or a message from another Claude session. Classify what the agent will do next with it. A finished agent\'s result that the agent only relays to the person or hands to the next agent is light: chat, or implement or fix with hard false. So is a report that the work is built, committed, or passes its checks or QA (minor findings at most). When the result reports a failure, a blocker, a cause still unknown, results that miss the target, or a decision to make, the agent must work it out: the work under way\'s phase, analyze, or fix with hard true. continues: true when it belongs to the work under way.'
 
 const MID_LINE = 'The person typed this message while the agent was still working on the work under way; it reaches the agent in the middle of that work. continues: true when it is about that work in any way (a question about it, a correction, a detail, a narrowing, an extra requirement for it, a reply to the agent). false only when it hands the agent a different task or asks about another subject.'
 
@@ -160,7 +160,7 @@ export function prompt(text: string, task: Task | null, previous: Route | null, 
  */
 export function briefPrompt(type: string, description: string, brief: string, task: Task | null) {
   return [
-    `A coding agent hands work to a subagent of type "${type}" (${description}). The subagent works on it alone and reports back. Classify the work the subagent will do, as if the text below were the new message.`,
+    `A coding agent hands work to a subagent of type "${type}" (${description}). The subagent works on it alone and reports back. Classify the work the subagent will do, as if the text below were the new message. Finding, listing or mapping code, or collecting facts or sources to hand back as found, is chat, however thorough. When the brief asks the subagent to weigh what it finds (find a cause, judge a trade-off, design, recommend), it is analyze: a research task that ends in a document of weighed findings, a design or recommendations is analyze. Acting on the world (sending, posting, writing production data, spending money) is implement with hard true.`,
     task ? `The subagent's work under way (${task.phase}) began with the brief:\n"""\n${task.text.slice(0, 600)}\n"""` : 'This is its first brief: continues false.',
     `The ${task ? 'new message to the subagent' : 'brief'}:\n"""\n${brief.slice(0, 4000)}\n"""`,
   ].join('\n\n')
@@ -316,14 +316,40 @@ export function forAgent(pick: Route, config: Config = DEFAULTS): Route {
 }
 
 /**
- * A notification goes at the effort of the work it serves. Its text does not tell whether the agent only relays the
- * result or carries the work on (hands one agent's result to another, applies it, fixes what it found), and a turn the
- * classifier calls chat may run many steps of edits; a relay costs about the same at either effort. With no work known,
- * the notification's own pick.
+ * What a notification's envelope says of the task it reports on, read from the fields the engine writes: whether the
+ * task failed (its status), and whether it was a background command (a shell, not an agent).
  */
-export function forNotice(pick: Route | null, task: Task | null): Route | null {
+export type Notice = { failed: boolean; command: boolean }
+export function noticeOf(text: string): Notice {
+  // The envelope's own tags come first: a result quoted inside it comes after them.
+  const status = /<status>\s*([a-z_]+)\s*<\/status>/.exec(text)?.[1]
+  const summary = /<summary>([\s\S]*?)<\/summary>/.exec(text)?.[1] ?? ''
+  return { failed: status === 'failed', command: /^\s*Background command\b/.test(summary) }
+}
+
+/**
+ * A notification with work under way. It keeps the work's effort when the agent must think it through (the classifier
+ * reads plan or analyze, or a hard build), when the task failed, when a background command finished (its output is the
+ * work's own next step, read only by the agent), or when the work is a hard build (what an agent hands back there often
+ * leads into its risky or tricky part, which its text does not show); with no pick, too. A hard build step goes at least at its own
+ * effort, above a plain build's. Otherwise (an agent's result to relay or hand to the next agent) its own pick, at
+ * least the build effort while work is under way and never above the work's effort. With no work known, the
+ * notification's own pick.
+ */
+export function forNotice(pick: Route | null, task: Task | null, notice: Notice = { failed: false, command: false }, config: Config = DEFAULTS): Route | null {
   if (!task) return pick
-  return { phase: task.phase, hard: task.hard, effort: task.effort, continues: true, kept: true, why: 'notification: at the work under way' }
+  // A hard step the work under way did not need yet (a check failed in a plain build) goes at its own effort.
+  const keep = (why: string): Route => pick?.hard && RANK[pick.effort] > RANK[task.effort]
+    ? { ...pick, continues: true, why: `notification: ${pick.why} (hard ${pick.phase}: above the work's ${task.effort})` }
+    : { phase: task.phase, hard: task.hard, effort: task.effort, continues: true, kept: true, why }
+  if (!pick) return keep('notification: at the work under way')
+  if (notice.failed) return keep('notification: the task failed: at the work under way')
+  if (notice.command) return keep('a command finished: at the work under way')
+  if (task.hard) return keep(`notification: ${pick.why} (in a hard build: at the work under way)`)
+  if (THINK.includes(pick.phase) || pick.hard) return keep(`notification: ${pick.why} (${pick.hard ? `hard ${pick.phase}` : pick.phase}: at the work under way)`)
+  const floor = RANK[pick.effort] < RANK[config.build] ? config.build : pick.effort
+  const effort = RANK[floor] > RANK[task.effort] ? task.effort : floor
+  return { ...pick, effort, continues: true, why: `notification: ${pick.why} (${effort})` }
 }
 
 export function parse(reply: string, config: Config = DEFAULTS): Route | null {
