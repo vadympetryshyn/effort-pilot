@@ -515,6 +515,12 @@ function measured(r: { share: number; low: number; high: number }, a: number, c:
   return { ...r, verdict, more }
 }
 export const VERDICT = { better: 'better with Effort Pilot: clear', worse: 'worse with Effort Pilot: clear', unclear: 'not clear yet' } as const
+/** The net's verdict in words, the text report's and the pane's. */
+export function netWords(n: NonNullable<ReportData['net']>) {
+  if (n.verdict === 'pays') return 'Effort Pilot pays for itself'
+  if (n.verdict === 'costs') return 'Effort Pilot costs more than it saves'
+  return `not clear yet: the cost range spans zero in ${n.unclear} of ${n.phases} compared phase${n.phases === 1 ? '' : 's'}`
+}
 
 /**
  * The measurement's read, always against high: the person's own effort high is the one baseline. Three measures per
@@ -531,6 +537,7 @@ export function reportData(all: readonly TurnRecord[]): ReportData {
   let faster = 0
   let compared = 0
   let done = 0
+  let unclear = 0
   const arm = (xs: TurnRecord[]): ArmRead | null => xs.length
     ? { turns: xs.length, cost: mean(xs.map(turnCost)), time: median(xs.map(speed)), short: mean(xs.map(x => (fell.get(x) ? 1 : 0))) }
     : null
@@ -558,6 +565,7 @@ export function reportData(all: readonly TurnRecord[]): ReportData {
         time: measured(saving(a.map(speed), c.map(speed)), a.length, c.length),
         short: measured(gap(a.map(bit), c.map(bit)), a.length, c.length),
       }
+      if (read.measures.cost.verdict === 'unclear') unclear++
     }
     phases.push(read)
   }
@@ -583,7 +591,13 @@ export function reportData(all: readonly TurnRecord[]): ReportData {
           wait: sum(cls.map(c => c.ms)) / Math.max(1, calls) / 1000, missing: records.length - counted.length,
         }
       : null,
-    net: compared ? { phases: done, turns: compared, saved: saved / compared, perTurn, faster: faster / compared } : null,
+    net: compared
+      ? {
+          phases: done, turns: compared, saved: saved / compared, perTurn, faster: faster / compared, unclear,
+          // The classifier's own cost is near-certain: once every phase's saving is clear, the sign decides.
+          verdict: unclear ? 'unclear' : saved / compared - perTurn > 0 ? 'pays' : 'costs',
+        }
+      : null,
   }
 }
 
@@ -611,7 +625,7 @@ export function report(all: readonly TurnRecord[]) {
     : 'Effort Pilot\'s own cost: not recorded yet'
   const n = d.net
   const net = n
-    ? `net over ${n.phases} compared phases (${n.turns} pilot turns): cost ${usd(n.saved)} a turn saved − classifier ${usd(n.perTurn)} = ${usd(n.saved - n.perTurn)} → ${n.saved - n.perTurn > 0 ? 'Effort Pilot pays for itself' : 'Effort Pilot costs more than it saves'}; model time ${sec(Math.abs(n.faster))} a turn ${n.faster >= 0 ? 'faster' : 'slower'}; quality: see "fell short" per phase`
+    ? `net over ${n.phases} compared phases (${n.turns} pilot turns): cost ${usd(n.saved)} a turn saved − classifier ${usd(n.perTurn)} = ${usd(n.saved - n.perTurn)} → ${netWords(n)}; model time ${sec(Math.abs(n.faster))} a turn ${n.faster >= 0 ? 'faster' : 'slower'}; quality: see "fell short" per phase`
     : `net: not known yet — no phase has ${ENOUGH}+ turns on each arm`
   return [
     `${d.turns} turns over ${d.days.toFixed(1)} days, ${d.sessions} sessions${d.left ? ` (${d.left} test or failed turns left out)` : ''} · costs at API prices (a common unit for Opus and Haiku tokens)`,

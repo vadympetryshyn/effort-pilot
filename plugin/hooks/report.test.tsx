@@ -33,6 +33,12 @@ function sample(): TurnRecord[] {
   ]
 }
 
+/** One phase, five turns on each arm, whose cost varies so much its range spans zero; the pilot's is lower on the point. */
+const shaky = () => [
+  ...Array.from({ length: 5 }, (_, i) => turn({ phase: 'fix', out: [500, 5000, 900, 4000, 1200][i] })),
+  ...Array.from({ length: 5 }, (_, i) => control({ phase: 'fix', out: [4500, 700, 3900, 1100, 2600][i] })),
+]
+
 describe('the report as data', () => {
   const d = reportData(sample())
 
@@ -79,15 +85,21 @@ describe('the report as data', () => {
     expect(d.net!.saved).toBeGreaterThan(0)
   })
 
+  test('says the net pays for itself once every compared phase\'s cost saving is clear', () => {
+    expect(d.net).toMatchObject({ verdict: 'pays', unclear: 0 })
+  })
+
   test('reads an unclear measure with the turns still needed while the range spans zero', () => {
-    const shaky = [
-      ...Array.from({ length: 5 }, (_, i) => turn({ phase: 'fix', out: [500, 5000, 900, 4000, 1200][i] })),
-      ...Array.from({ length: 5 }, (_, i) => control({ phase: 'fix', out: [4500, 700, 3900, 1100, 2600][i] })),
-    ]
-    const cost = reportData(shaky).phases[0]!.measures!.cost
+    const cost = reportData(shaky()).phases[0]!.measures!.cost
     expect(cost.verdict).toBe('unclear')
     expect(cost.more!.pilot).toBeGreaterThan(0)
     expect(cost.more!.control).toBeGreaterThan(0)
+  })
+
+  test('leaves the net unclear while a compared phase\'s cost range spans zero, whatever the point says', () => {
+    const net = reportData(shaky()).net!
+    expect(net.saved - net.perTurn).toBeGreaterThan(0)
+    expect(net).toMatchObject({ verdict: 'unclear', unclear: 1, phases: 1 })
   })
 
   test('has nothing to read with no records', () => {
@@ -150,9 +162,19 @@ test('the report opens a pane of bars, pilot against control, on every surface',
     expect(bars.length).toBeGreaterThan(6)
     expect((await ui.find({ type: 'Text', text: /notifications · trivial: 2 turns/ }))).toBeDefined()
     expect((await ui.find({ type: 'Text', text: /waits 1\.2s before a prompt/ }))).toBeDefined()
-    expect((await ui.find({ type: 'Text', text: /Effort Pilot pays for itself|costs more than it saves/ }))).toBeDefined()
+    expect((await ui.find({ type: 'Text', text: /Effort Pilot pays for itself/ }))).toBeDefined()
     await ui.unmount()
   }
+})
+
+test('the pane\'s net is not clear while a compared phase\'s cost range spans zero', { options: { measure: true } }, async ($, on) => {
+  disk(on, shaky())
+  on('ui.open', () => ({ value: { isPlaced: true } }))
+  await $.command.run(command)
+  const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  expect((await ui.find({ type: 'Text', text: /^not clear yet: the cost range spans zero in 1 of 1 compared phase$/ }))).toBeDefined()
+  expect((await ui.find({ type: 'Text', text: /pays for itself|costs more than it saves/ }))).toBeUndefined()
+  await ui.unmount()
 })
 
 test('refresh reads the records again', { options: { measure: true } }, async ($, on) => {

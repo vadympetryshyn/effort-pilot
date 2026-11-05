@@ -1,7 +1,7 @@
 import type { BoxProps, ButtonProps, ElementConstructor, RenderElement, TextProps } from 'claude-code'
 
 import type { ArmRead, Effort, MeasureRead, PhaseRead, ReportData } from '../types'
-import { EFFORTS, ENOUGH, fmt, groupTitle, VERDICT } from './route'
+import { EFFORTS, ENOUGH, fmt, groupTitle, netWords, VERDICT } from './route'
 
 // The report pane: the measurement's read drawn as bars, pilot against control, from the same data as the text report.
 
@@ -157,7 +157,7 @@ export function board(ui: Ui, read: { data: ReportData; where: string } | null, 
           <Box flexDirection="column">
             <Text>
               {'  '}cost {fmt.usd(n.saved)} a turn saved − classifier {fmt.usd(n.perTurn)} = <Text bold>{fmt.usd(n.saved - n.perTurn)}</Text>
-              {' → '}{n.saved - n.perTurn > 0 ? 'Effort Pilot pays for itself' : 'Effort Pilot costs more than it saves'}
+              {' → '}<Text color={n.verdict === 'pays' ? 'success' : n.verdict === 'costs' ? 'error' : undefined} bold={n.verdict !== 'unclear'}>{netWords(n)}</Text>
             </Text>
             <Text>  model time {fmt.sec(Math.abs(n.faster))} a turn {n.faster >= 0 ? 'faster' : 'slower'} <Text dimColor>· over {plural(n.phases, 'compared phase')}, {plural(n.turns, 'pilot turn')}; quality: fell short per phase</Text></Text>
           </Box>

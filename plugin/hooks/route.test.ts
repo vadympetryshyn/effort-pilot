@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'claude-code/testing'
 
 import type { Route, Spend, Task, TurnRecord } from '../types'
-import { afterPlan, cacheRewritten, carry, configFrom, DEFAULTS, effortFor, forAgent, forNotice, managed, midTurn, noticeOf, parse, parseRecords, perMessage, report, sameModel, SYSTEM, wholeRequest } from './route'
+import { afterPlan, cacheRewritten, carry, configFrom, DEFAULTS, effortFor, forAgent, forNotice, managed, midTurn, noticeOf, parse, parseRecords, perMessage, report, reportData, sameModel, SYSTEM, wholeRequest } from './route'
 import type { Step } from './route'
 
 const route = (phase: Route['phase'], effort: Route['effort'], extra: Partial<Route> = {}): Route => ({ phase, hard: false, effort, why: 'w', ...extra })
@@ -260,6 +260,17 @@ describe('report', () => {
   test('the range is wide when turns vary', () => {
     const noisy = records.map((r, i) => ({ ...r, out: (i % 3) * 5000 + 100 }))
     expect(report(noisy)).toContain('not clear yet')
+  })
+  test('the net is not clear while a compared phase\'s cost range spans zero, even with a saving on the point', () => {
+    const outs = { auto: [100, 6000, 200, 5000, 300], control: [5000, 200, 6000, 400, 4800] }
+    const noisy = records.map(r => ({ ...r, out: outs[r.arm][r.t % 5]! }))
+    const d = reportData(noisy)
+    expect(d.phases.every(p => p.measures?.cost.verdict === 'unclear')).toBe(true)
+    expect(d.net!.saved - d.net!.perTurn).toBeGreaterThan(0)
+    expect(d.net!.verdict).toBe('unclear')
+    const net = report(noisy).split('\n\n').at(-1)!
+    expect(net).toContain('→ not clear yet: the cost range spans zero in 3 of 3 compared phases')
+    expect(net).not.toContain('pays for itself')
   })
   test('no net until a phase has 5+ turns on each arm', () => {
     expect(report(records.slice(0, 3))).toContain('net: not known yet')

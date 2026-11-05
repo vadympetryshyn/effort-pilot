@@ -2,6 +2,10 @@
 
 All notable changes. Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions: [SemVer](https://semver.org/).
 
+## [1.5.1] — 2026-11-05
+
+- The report's net line no longer says the pilot pays for itself (or costs more than it saves) from the point estimate alone. While any compared phase's cost range still spans zero, it keeps the numbers and says "not clear yet", with how many compared phases are still unclear. Once every compared phase's cost verdict is clear, the sign of the saving less the classifier's cost decides, as before. The report pane says the same.
+
 ## [1.5.0] — 2026-11-05
 
 - Notifications while work is under way are classified instead of always keeping the work's effort. An agent's result the agent only relays or hands to the next agent runs at its own effort: at least `medium`, never above the work's. The work's effort is kept when the result needs thinking (a plan, an analysis, a hard step), reports a failure, is a background command's output, or arrives in a hard build. During a plan or an analysis, a finished task's result never goes below `high`.

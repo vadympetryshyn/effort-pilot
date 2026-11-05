@@ -145,8 +145,12 @@ export type ReportData = {
   sent: Partial<Record<Effort | 'none', number>>
   /** The classifier's own cost; null while none is recorded. */
   classifier: { calls: number; turns: number; input: number; out: number; cost: number; perTurn: number; wait: number; missing: number } | null
-  /** Over the compared phases, a pilot turn: cost saved ($) and model time saved (ms); null while no phase is compared. */
-  net: { phases: number; turns: number; saved: number; perTurn: number; faster: number } | null
+  /**
+   * Over the compared phases, a pilot turn: cost saved ($) and model time saved (ms); null while no phase is compared.
+   * verdict: unclear while any compared phase's cost range spans zero (`unclear` of them); once none does, the sign of
+   * saved − perTurn decides pays or costs.
+   */
+  net: { phases: number; turns: number; saved: number; perTurn: number; faster: number; verdict: 'pays' | 'costs' | 'unclear'; unclear: number } | null
 }
 
 /** Requests and output tokens at each effort level, main loop only. */
