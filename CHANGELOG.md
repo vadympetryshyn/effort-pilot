@@ -4,7 +4,7 @@ All notable changes. Format: [Keep a Changelog](https://keepachangelog.com/en/1.
 
 ## [1.5.2] — 2026-11-06
 
-- A notification or a subagent's hand-back that arrives while a subagent is still working gets its own effort. Claude Code hands such a message the subagent's turn, so the pilot took it for one delivered into a running turn: it was never classified, and the turn ran at whatever effort the last one had. A prompt you send while only a subagent works is routed as you send it, once.
+- A subagent's hand-back (the message that returns a background agent's result) was skipped: its turn ran at whatever effort the last one had, and the report counted it as one of your prompts. It is now read like any background result: during a plan or an analysis at least `high`, otherwise at its own effort.
 - The report's "fell short" counts a turn only when the very next message is yours and says it fell short. A turn followed by a notification's turn is no longer charged with a complaint you made later about other work. A subagent's run is still judged by your next message.
 - With `CLAUDE_CODE_DISABLE_ULTRATHINK` set, the word `ultrathink` no longer raises the turn to `xhigh`: the classifier is told the keyword is off.
 

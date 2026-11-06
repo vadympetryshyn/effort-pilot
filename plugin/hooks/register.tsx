@@ -135,8 +135,11 @@ async function setPlan($: EngineInterface, isPlan: boolean) {
   await publish($)
 }
 
-/** Route a turn that starts with this text: a person's prompt, a notification, or a message that waited in the queue. */
-async function begin($: EngineInterface, text: string, kind: string) {
+/**
+ * Route a turn that starts with this text: a person's prompt, a notification, or a message that waited in the queue.
+ * handBack: the engine marked the notification meta (a subagent's hand-back), the result of a finished task.
+ */
+async function begin($: EngineInterface, text: string, kind: string, handBack = false) {
   const notice = NOTICE.has(kind)
   await credential($)
   if (!routed(kind) || (await read($, mode)) === 'off') {
@@ -164,7 +167,8 @@ async function begin($: EngineInterface, text: string, kind: string) {
   const pick = await classify($, text, true, notice).catch(() => null)
   const share0 = share()
   const carried = pick && !notice ? carry(work, pick, text, config) : null
-  const next = notice ? forNotice(pick, work, noticeOf(text), config) : carried?.route ?? null
+  const envelope = noticeOf(text)
+  const next = notice ? forNotice(pick, work, handBack ? { ...envelope, finished: true } : envelope, config) : carried?.route ?? null
   lastPick = notice ? null : pick
   turnPick = pick
   // A control turn only where the pilot would send another effort than the person's own: a turn where the two
@@ -643,6 +647,8 @@ export const register: Register = (on, options) => {
   // of its own, classified then (turn.start). A slash command typed while a turn runs waits until it ends and is
   // submitted then, as from an idle session: routed as below. Only the main loop's running turn makes a message mid-turn:
   // one submitted while only a subagent works (it carries the subagent's turn id) starts a main-loop turn, routed here.
+  // A meta submit is the engine's own, not routed, except a notification's: a subagent's hand-back comes as a meta
+  // message from a peer, and is routed like any finished task's result.
   on('prompt.submit', async ($, e, next) => {
     await resume($)
     if (e.origin.kind === 'sdk') interactive = false
@@ -656,7 +662,7 @@ export const register: Register = (on, options) => {
       return next(e)
     }
     submitted = true
-    if (e.isMeta) return next(e)
+    if (e.isMeta && !NOTICE.has(e.origin.kind)) return next(e)
     // A skill or prompt command is expanded for the model beneath (skill.prompt) and routed there.
     if (e.command) {
       typed = { name: e.command.name, text: e.text, args: e.command.args, kind: e.origin.kind }
@@ -664,7 +670,7 @@ export const register: Register = (on, options) => {
       await unrouted($)
       return result
     }
-    await begin($, e.text, e.origin.kind)
+    await begin($, e.text, e.origin.kind, !!e.isMeta)
     return next(e)
   }).catch(($, e, next) => next(e))
 
