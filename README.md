@@ -68,7 +68,7 @@ A band above the prompt shows the effort now, how it got there and why. Follow-u
 
 ## Features
 
-- 🗣️ **Just say it.** "do this on max", "medium is enough", "plan it, then build on high" — in any language, typed or dictated. `ultrathink` runs that work at `xhigh`, as Claude Code does. "back to auto" hands it back.
+- 🗣️ **Just say it.** "do this on max", "medium is enough", "plan it, then build on high" — in any language, typed or dictated. `ultrathink` runs that work at `xhigh`, as Claude Code does (with `CLAUDE_CODE_DISABLE_ULTRATHINK` set, the word asks for nothing). "back to auto" hands it back.
 - 🧭 **Plan mode** runs at `xhigh`; the approved plan is built at `medium`.
 - 🤖 **Subagents** get their own effort, on the session's model or another one (never below the build effort, `medium` by default). An effort the Agent call names, or `CLAUDE_CODE_SUBAGENT_EFFORT`, is left alone.
 - 🔔 **Background results** and messages from other sessions are read too: one the agent only relays or hands to the next agent goes at the build effort (at `high` while a plan or an analysis is under way); one that reports a failure, a background command's output, or a step in hard work keeps the effort of the work it serves.
@@ -104,7 +104,7 @@ All in `/config` → **effort-pilot**.
 
 ## Measure it yourself
 
-Turn on **measure**. A share of turns where Effort Pilot would pick something other than `high` is left at `high` (control turns). `/effort-pilot report` then compares, per phase, **cost per turn**, **model time** and **turns that fell short** (aborted, or your next message says it was wrong), each with a 90% range, and nets out what the classifier itself cost. Records (turn statistics, no prompt text) live in the plugin's data folder, `~/.claude/plugins/data/effort-pilot-effort-pilot/turns/`, one file a day, and are kept for 90 days. `/effort-pilot reset` deletes them; uninstalling the plugin removes them too (unless you uninstall with `--keep-data`).
+Turn on **measure**. A share of turns where Effort Pilot would pick something other than `high` is left at `high` (control turns). `/effort-pilot report` then compares, per phase, **cost per turn**, **model time** and **turns that fell short** (aborted, or the message you send right after it says it was wrong), each with a 90% range, and nets out what the classifier itself cost. Records (turn statistics, no prompt text) live in the plugin's data folder, `~/.claude/plugins/data/effort-pilot-effort-pilot/turns/`, one file a day, and are kept for 90 days. `/effort-pilot reset` deletes them; uninstalling the plugin removes them too (unless you uninstall with `--keep-data`).
 
 ## Contributing
 

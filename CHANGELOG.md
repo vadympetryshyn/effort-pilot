@@ -2,6 +2,12 @@
 
 All notable changes. Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions: [SemVer](https://semver.org/).
 
+## [1.5.2] — 2026-11-06
+
+- A notification or a subagent's hand-back that arrives while a subagent is still working gets its own effort. Claude Code hands such a message the subagent's turn, so the pilot took it for one delivered into a running turn: it was never classified, and the turn ran at whatever effort the last one had. A prompt you send while only a subagent works is routed as you send it, once.
+- The report's "fell short" counts a turn only when the very next message is yours and says it fell short. A turn followed by a notification's turn is no longer charged with a complaint you made later about other work. A subagent's run is still judged by your next message.
+- With `CLAUDE_CODE_DISABLE_ULTRATHINK` set, the word `ultrathink` no longer raises the turn to `xhigh`: the classifier is told the keyword is off.
+
 ## [1.5.1] — 2026-11-05
 
 - The report's net line no longer says the pilot pays for itself (or costs more than it saves) from the point estimate alone. While any compared phase's cost range still spans zero, it keeps the numbers and says "not clear yet", with how many compared phases are still unclear. Once every compared phase's cost verdict is clear, the sign of the saving less the classifier's cost decides, as before. The report pane says the same.

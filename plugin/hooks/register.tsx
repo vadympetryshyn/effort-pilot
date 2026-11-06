@@ -3,7 +3,7 @@ import type { EngineInterface, Register } from 'claude-code'
 
 import type { AgentRun, Config, Effort, Mode, Route, Spend, Tally, Task, TurnRecord, Who } from '../types'
 import {
-  afterPlan, asideText, briefPrompt, cacheRewritten, commandText, unasked, carry, configFrom, DEFAULTS, EFFORTS, forAgent, forNotice, managed as managedBy,
+  afterPlan, asideText, briefPrompt, cacheRewritten, commandText, unasked, carry, configFrom, DEFAULTS, EFFORTS, flagOn, forAgent, forNotice, managed as managedBy,
   midTurn, noticeOf, parse, parseRecords, prompt, promptOf, recentOf, report, reportData, sameModel, seedPrompt, SHORT, SYSTEM, wholeRequest,
 } from './route'
 import type { Aside, Step } from './route'
@@ -343,9 +343,16 @@ async function delivered($: EngineInterface, kind: string, text: string) {
   }
 }
 
+// Whether the person turned Claude Code's "ultrathink" keyword off (CLAUDE_CODE_DISABLE_ULTRATHINK): read once a load.
+let ultrathinkOff: boolean | null = null
+async function noUltrathink($: EngineInterface) {
+  if (ultrathinkOff === null) ultrathinkOff = flagOn(await $.env.get('CLAUDE_CODE_DISABLE_ULTRATHINK').catch(() => undefined))
+  return ultrathinkOff
+}
+
 /** count: false for /effort-pilot classify, a test the person runs by hand. */
 async function classify($: EngineInterface, text: string, count = true, notice = false, midTurn = false): Promise<Route | null> {
-  const { route: r, took } = await ask($, prompt(text, await read($, task), await read($, route), await read($, lastAnswer), notice, midTurn), count)
+  const { route: r, took } = await ask($, prompt(text, await read($, task), await read($, route), await read($, lastAnswer), notice, midTurn, await noUltrathink($)), count)
   await update($, latency, () => took)
   return r
 }
@@ -454,6 +461,9 @@ let lastPick: Route | null = null
 let turnPick: Route | null = null
 // A prompt.submit ran while the session was idle: the turn that follows is that prompt's, already routed.
 let submitted = false
+// The main loop's running turn, from its turn.start to its turn.complete; null while the main loop is idle. A prompt
+// submitted while only a subagent runs carries that subagent's turn id, yet starts a main-loop turn of its own.
+let mainTurn: string | null = null
 // A slash command the person typed, from its prompt.submit until the engine expands it for the model (skill.prompt):
 // a skill or prompt command, routed then from its line as typed. A built-in that runs on its own (/clear, /model) raises
 // no prompt.submit, and one that is never expanded is never routed. Cleared as its turn starts.
@@ -631,12 +641,13 @@ export const register: Register = (on, options) => {
   // only for the rest of that turn, while the next prompt is classified anyway. It counts only as new input, the
   // moment Claude Code applies an effort asked for mid-turn. If the turn ends before it is delivered, it starts a turn
   // of its own, classified then (turn.start). A slash command typed while a turn runs waits until it ends and is
-  // submitted then, as from an idle session: routed as below.
+  // submitted then, as from an idle session: routed as below. Only the main loop's running turn makes a message mid-turn:
+  // one submitted while only a subagent works (it carries the subagent's turn id) starts a main-loop turn, routed here.
   on('prompt.submit', async ($, e, next) => {
     await resume($)
     if (e.origin.kind === 'sdk') interactive = false
     else if (LIVE.has(e.origin.kind)) interactive = true
-    if (e.turnId !== undefined) {
+    if (e.turnId !== undefined && mainTurn !== null) {
       if (!e.command && !e.isMeta && !NOTICE.has(e.origin.kind)) {
         freshInput = true
         queued = e.origin.kind
@@ -726,7 +737,7 @@ export const register: Register = (on, options) => {
     }
     let description = e.description
     if (builtin && !named && e.prompt.trim()) {
-      const { route: pick } = await ask($, briefPrompt(e.subagentType, e.description, e.prompt, d.task), true).catch(() => ({ route: null }))
+      const { route: pick } = await ask($, briefPrompt(e.subagentType, e.description, e.prompt, d.task, await noUltrathink($)), true).catch(() => ({ route: null }))
       if (pick) {
         const carried = d.task ? carry(d.task, pick, e.prompt, config) : { route: pick, task: { phase: pick.phase, hard: pick.hard, effort: pick.effort, text: e.prompt } }
         d.route = forAgent(carried.route, config)
@@ -750,6 +761,7 @@ export const register: Register = (on, options) => {
 
   on('turn.start', async ($, e, next) => {
     if (e.agentId === undefined) {
+      mainTurn = e.turnId
       await resume($)
       // No prompt.submit before this turn and a message still queued: the turn is that message's, read only now.
       const kind = queued
@@ -850,6 +862,7 @@ export const register: Register = (on, options) => {
       }
       return result
     }
+    mainTurn = null
     const faulted = lastPick?.faulted
     const own = turnPick
     lastPick = null

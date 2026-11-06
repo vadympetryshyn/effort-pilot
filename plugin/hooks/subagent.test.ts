@@ -11,15 +11,16 @@ const SESSION = 'claude-opus-5-5[1m]'
 
 /** A session whose main loop went at xhigh on SESSION; env answers from `env`. Counts classifier calls. */
 async function session($: Engine, on: On, env: Record<string, string> = {}) {
-  const seen = { calls: 0, sent: [] as unknown[], spawned: [] as string[] }
+  const seen = { calls: 0, sent: [] as unknown[], spawned: [] as string[], prompts: [] as string[] }
   on('command.register', () => ({ value: { command: 'effort-pilot' } }))
   on('session.model', () => ({ value: SESSION }))
   on('session.authorize', () => ({ value: { handle: 'h', kind: 'bearer' as const } }))
   on('session.id', () => ({ value: 's1' }))
   on('env.get', (_$, e) => ({ value: env[e.name] }))
   on('clock.now', () => ({ value: 0 }))
-  on('model.complete', () => {
+  on('model.complete', (_$, e) => {
     seen.calls++
+    seen.prompts.push(e.prompt)
     return { value: { isAnswered: true, text: reply, usage } }
   })
   on('ui.status', () => ({ value: undefined }))
@@ -84,5 +85,17 @@ describe('a built-in subagent', () => {
     expect(seen.calls).toBe(0)
     expect(seen.sent).toEqual(['low'])
     expect(seen.spawned).toEqual(['investigate'])
+  })
+
+  test('with CLAUDE_CODE_DISABLE_ULTRATHINK set, its brief is classified knowing the keyword asks for nothing', async ($, on) => {
+    const seen = await session($, on, { CLAUDE_CODE_DISABLE_ULTRATHINK: '1' })
+    await subagent($, 'claude-fable-5-1', 'claude-fable-5-1', 'medium')
+    expect(seen.prompts[0]).toContain('"ultrathink" keyword is turned off')
+  })
+
+  test('without it, its brief is classified as before', async ($, on) => {
+    const seen = await session($, on)
+    await subagent($, 'claude-fable-5-1', 'claude-fable-5-1', 'medium')
+    expect(seen.prompts[0]).not.toContain('"ultrathink" keyword is turned off')
   })
 })

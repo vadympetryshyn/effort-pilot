@@ -125,3 +125,75 @@ describe('another Claude session\'s message', () => {
     expect(records(seen)[1].who).toBe('notification')
   })
 })
+
+// A message submitted while only a subagent works carries the subagent's turn id, but the main loop is idle: it starts
+// a main-loop turn of its own and is routed as it is submitted. Only the main loop's running turn makes one mid-turn.
+const handBack = '<agent-message from="a2">[Subagent hand-back] The search is done: the timeout comes from the unpaged report query.</agent-message>'
+
+/** A subagent's turn that is still running, with the main loop idle. */
+async function subagentRuns($: Engine) {
+  await $.turn.start({ text: 'Find where the report query is built.', turnId: 'sub1', agentId: 'a1' } as never)
+}
+
+/** A main-loop turn started by a message submitted over the turn `over`: one request at high, completed. */
+async function turnOver($: Engine, over: string, turnId: string, text: string, kind: string) {
+  await $.prompt.submit({ text, origin: { kind }, turnId: over } as never)
+  await $.turn.start({ text, turnId })
+  for await (const _ of $.turn.step({ turnId, index: 0, model: 'claude-opus-5-5', effort: 'high', messageCount: 1 })) { /* drain */ }
+  await $.turn.complete({ turnId, answer: 'done', durationMs: 5, isAborted: false, reason: 'answer' } as never)
+}
+
+describe('a message submitted while only a subagent works', () => {
+  test('a finished task\'s notification is classified once and routed as a notification', { options: { measure: true, controlShare: 0 } }, async ($, on) => {
+    const seen = await session($, on, [pick('analyze'), pick('chat')])
+    await turn($, 't1', 'Why does the export time out on large reports?', 'composer')
+    await subagentRuns($)
+    await turnOver($, 'sub1', 't2', agentDone, 'task-notification')
+    expect(seen.calls).toBe(2)
+    expect(seen.sent).toEqual(['high', 'high'])
+    const notice = records(seen)[1]
+    expect(notice.who).toBe('notification')
+    expect(notice.cls.calls).toBe(1)
+    expect(notice.pick).toEqual({ phase: 'chat', hard: false })
+  })
+
+  test('a subagent\'s hand-back is classified once and routed as a notification', { options: { measure: true, controlShare: 0 } }, async ($, on) => {
+    const seen = await session($, on, [pick('analyze'), pick('chat')])
+    await turn($, 't1', 'Why does the export time out on large reports?', 'composer')
+    await subagentRuns($)
+    await turnOver($, 'sub1', 't2', handBack, 'peer')
+    expect(seen.calls).toBe(2)
+    expect(seen.prompts[1]).toContain('message from another Claude session')
+    expect(seen.sent).toEqual(['high', 'medium'])
+    const notice = records(seen)[1]
+    expect(notice.who).toBe('notification')
+    expect(notice.cls.calls).toBe(1)
+    expect(notice.pick).toEqual({ phase: 'chat', hard: false })
+  })
+
+  test('a person\'s prompt is classified once, not again as its turn starts', { options: { measure: true, controlShare: 0 } }, async ($, on) => {
+    const seen = await session($, on, [pick('analyze'), pick('implement')])
+    await turn($, 't1', 'Why does the export time out on large reports?', 'composer')
+    await subagentRuns($)
+    await turnOver($, 'sub1', 't2', 'Add paging to the report query.', 'composer')
+    expect(seen.calls).toBe(2)
+    const prompt = records(seen)[1]
+    expect(prompt.who).toBe('person')
+    expect(prompt.cls.calls).toBe(1)
+    expect(prompt.pick).toEqual({ phase: 'implement', hard: false })
+  })
+})
+
+describe('a notification submitted over the main loop\'s running turn', () => {
+  test('is not classified as it is submitted', async ($, on) => {
+    const seen = await session($, on, [pick('analyze'), pick('chat')])
+    await $.prompt.submit({ text: 'Why does the export time out on large reports?', origin: { kind: 'composer' } } as never)
+    await $.turn.start({ text: 'Why does the export time out on large reports?', turnId: 't1' })
+    await $.prompt.submit({ text: agentDone, origin: { kind: 'task-notification' }, turnId: 't1' } as never)
+    expect(seen.calls).toBe(1)
+    for await (const _ of $.turn.step({ turnId: 't1', index: 0, model: 'claude-opus-5-5', effort: 'high', messageCount: 1 })) { /* drain */ }
+    await $.turn.complete({ turnId: 't1', answer: 'done', durationMs: 5, isAborted: false, reason: 'answer' } as never)
+    expect(seen.calls).toBe(1)
+    expect(seen.sent).toEqual(['high'])
+  })
+})

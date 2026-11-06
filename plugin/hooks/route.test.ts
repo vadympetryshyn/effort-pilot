@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'claude-code/testing'
 
 import type { Route, Spend, Task, TurnRecord } from '../types'
-import { afterPlan, cacheRewritten, carry, configFrom, DEFAULTS, effortFor, forAgent, forNotice, managed, midTurn, noticeOf, parse, parseRecords, perMessage, report, reportData, sameModel, SYSTEM, wholeRequest } from './route'
+import { afterPlan, briefPrompt, cacheRewritten, carry, configFrom, DEFAULTS, effortFor, flagOn, forAgent, forNotice, managed, midTurn, NO_ULTRATHINK_LINE, noticeOf, parse, parseRecords, perMessage, prompt, report, reportData, sameModel, short, SYSTEM, wholeRequest } from './route'
 import type { Step } from './route'
 
 const route = (phase: Route['phase'], effort: Route['effort'], extra: Partial<Route> = {}): Route => ({ phase, hard: false, effort, why: 'w', ...extra })
@@ -429,5 +429,55 @@ describe('cacheRewritten', () => {
     expect(cacheRewritten(prev, cur({ cacheRead: 0, model: 'claude-fable-5-1' }))).toBe(false)
     expect(cacheRewritten(prev, cur({ cacheRead: 0, input: false }))).toBe(false)
     expect(cacheRewritten(null, cur({ cacheRead: 0 }))).toBe(false)
+  })
+})
+
+describe('fell short', () => {
+  const at = (t: number, who: TurnRecord['who'], extra: Partial<TurnRecord> = {}) => ({
+    t, s: 'a', arm: 'auto', phase: 'implement', hard: false, chosen: 'medium', base: 'high', sent: 'medium', model: 'claude-opus-5-5',
+    steps: 1, out: 10, input: 10, cacheRead: 0, cacheWrite: 0, ms: 10, reason: 'answer', gen: 5, ...(who ? { who } : {}), ...extra,
+  }) as TurnRecord
+  test('a turn the person answers by saying it fell short fell short', () => {
+    const [a, b] = [at(1, 'person'), at(2, 'person', { faulted: true })]
+    expect(short([a, b]).get(a)).toBe(true)
+  })
+  test('a notification\'s turn the person answers by saying it fell short fell short', () => {
+    const [a, b] = [at(1, 'notification'), at(2, undefined, { faulted: true })]
+    expect(short([a, b]).get(a)).toBe(true)
+  })
+  test('a main-loop turn followed by a notification\'s is not judged by a later complaint', () => {
+    const [a, n, b] = [at(1, 'person'), at(2, 'notification'), at(3, 'person', { faulted: true })]
+    const fell = short([a, n, b])
+    expect(fell.get(a)).toBe(false)
+    expect(fell.get(n)).toBe(true)
+  })
+  test('a subagent\'s run in between does not keep the person\'s answer from the turn', () => {
+    const [a, g, b] = [at(1, 'person'), at(2, 'agent'), at(3, 'person', { faulted: true })]
+    const fell = short([a, g, b])
+    expect(fell.get(a)).toBe(true)
+    expect(fell.get(g)).toBe(true)
+  })
+  test('a subagent\'s run is judged by the person\'s next prompt, past notifications', () => {
+    const [g, n, b] = [at(1, 'agent'), at(2, 'notification'), at(3, 'person', { faulted: true })]
+    expect(short([g, n, b]).get(g)).toBe(true)
+  })
+  test('a record with no model time takes a fix for the complaint; an aborted turn fell short', () => {
+    const [a, b] = [at(1, 'person'), at(2, 'person', { gen: undefined, phase: 'fix' })]
+    expect(short([a, b]).get(a)).toBe(true)
+    const [c, d] = [at(1, 'person', { reason: 'aborted' }), at(2, 'notification')]
+    expect(short([c, d]).get(c)).toBe(true)
+  })
+})
+
+describe('Claude Code\'s ultrathink keyword turned off', () => {
+  test('the classifier is told so only when CLAUDE_CODE_DISABLE_ULTRATHINK is set', () => {
+    expect(prompt('ultrathink: why does it fail?', null, null, '', false, false, true)).toContain(NO_ULTRATHINK_LINE)
+    expect(prompt('ultrathink: why does it fail?', null, null, '')).not.toContain(NO_ULTRATHINK_LINE)
+    expect(briefPrompt('general-purpose', 'investigate', 'ultrathink about the failure', null, true)).toContain(NO_ULTRATHINK_LINE)
+    expect(briefPrompt('general-purpose', 'investigate', 'ultrathink about the failure', null)).not.toContain(NO_ULTRATHINK_LINE)
+  })
+  test('the variable is set by any value but empty, 0 or false', () => {
+    expect([undefined, '', ' ', '0', 'false', 'FALSE'].map(flagOn)).toEqual([false, false, false, false, false, false])
+    expect(['1', 'true', 'yes'].map(flagOn)).toEqual([true, true, true])
   })
 })

@@ -142,13 +142,22 @@ const NOTICE_LINE = 'This message is not from the person: it is an automatic not
 
 const MID_LINE = 'The person typed this message while the agent was still working on the work under way; it reaches the agent in the middle of that work. continues: true when it is about that work in any way (a question about it, a correction, a detail, a narrowing, an extra requirement for it, a reply to the agent). false only when it hands the agent a different task or asks about another subject.'
 
-export function prompt(text: string, task: Task | null, previous: Route | null, lastAnswer: string, notice = false, midTurn = false) {
+/** Claude Code turns its `ultrathink` keyword off when CLAUDE_CODE_DISABLE_ULTRATHINK is set: the word asks for nothing then. */
+export const NO_ULTRATHINK_LINE = 'Claude Code\'s "ultrathink" keyword is turned off here: the word asks for no level.'
+/** An environment flag is on when set to anything but empty, "0" or "false". */
+export const flagOn = (v: string | undefined) => {
+  const x = (v ?? '').trim().toLowerCase()
+  return x !== '' && x !== '0' && x !== 'false'
+}
+
+export function prompt(text: string, task: Task | null, previous: Route | null, lastAnswer: string, notice = false, midTurn = false, noUltrathink = false) {
   return [
     task ? `The work under way (${task.phase}) began with the message:\n"""\n${task.text.slice(0, 600)}\n"""` : 'No work under way yet (first turn).',
     previous ? `Previous turn: ${previous.phase}.` : '',
     lastAnswer ? `The agent's last answer ended:\n"""\n${lastAnswer.slice(-1200)}\n"""` : '',
     notice ? NOTICE_LINE : '',
     midTurn ? MID_LINE : '',
+    noUltrathink ? NO_ULTRATHINK_LINE : '',
     `The ${notice ? 'notification' : "person's new message"}:\n"""\n${text.slice(0, 4000)}\n"""`,
     'Do not answer the message: classify it. Reply with the JSON object only.',
   ].filter(Boolean).join('\n\n')
@@ -158,12 +167,13 @@ export function prompt(text: string, task: Task | null, previous: Route | null, 
  * A subagent's brief, or a new message to a subagent already at work (task: the brief it began with).
  * The subagent works alone on it; classify the work it will do.
  */
-export function briefPrompt(type: string, description: string, brief: string, task: Task | null) {
+export function briefPrompt(type: string, description: string, brief: string, task: Task | null, noUltrathink = false) {
   return [
     `A coding agent hands work to a subagent of type "${type}" (${description}). The subagent works on it alone and reports back. Classify the work the subagent will do, as if the text below were the new message. Finding, listing or mapping code, or collecting facts or sources to hand back as found, is chat, however thorough. When the brief asks the subagent to weigh what it finds (find a cause, judge a trade-off, design, recommend), it is analyze: a research task that ends in a document of weighed findings, a design or recommendations is analyze. Acting on the world (sending, posting, writing production data, spending money) is implement with hard true.`,
     task ? `The subagent's work under way (${task.phase}) began with the brief:\n"""\n${task.text.slice(0, 600)}\n"""` : 'This is its first brief: continues false.',
+    noUltrathink ? NO_ULTRATHINK_LINE : '',
     `The ${task ? 'new message to the subagent' : 'brief'}:\n"""\n${brief.slice(0, 4000)}\n"""`,
-  ].join('\n\n')
+  ].filter(Boolean).join('\n\n')
 }
 
 /**
@@ -437,20 +447,24 @@ const usd = (x: number) => `${x < 0 ? '−' : ''}$${Math.abs(x) < 0.01 && x !== 
 const kTok = (n: number) => (n >= 10_000 ? `${Math.round(n / 1000)}k` : String(n))
 
 /**
- * A turn fell short when it was aborted, or the person's next prompt in the session says it did (faulted, read by
- * the classifier). A record with no model time (gen) carries no faulted flag either: for it, the next prompt being a
- * fix stands in. A rough sign of quality: the person does not always say so, and says so of work that was never the
- * turn's.
+ * A turn fell short when it was aborted, or the person's answer to it says it did (faulted, read by the classifier).
+ * A main-loop turn (the person's or a notification's) is answered only by the very next main-loop turn of its session,
+ * and only when that one is the person's: a notification's turn in between means the person answered none of them,
+ * so a complaint made later is not taken for theirs. A subagent's run is judged by the person's next prompt in the
+ * session. A record with no model time (gen) carries no faulted flag either: for it, the prompt being a fix stands in.
+ * A rough sign of quality: the person does not always say so, and says so of work that was never the turn's.
  */
 export function short(records: readonly TurnRecord[]) {
   const out = new Map<TurnRecord, boolean>()
   const bySession = new Map<string, TurnRecord[]>()
   for (const r of records) bySession.set(r.s, [...(bySession.get(r.s) ?? []), r])
+  const person = (x: TurnRecord) => (x.who ?? 'person') === 'person'
   for (const list of bySession.values()) {
     list.sort((a, b) => a.t - b.t)
     list.forEach((r, i) => {
-      const judge = list.slice(i + 1).find(x => (x.who ?? 'person') === 'person')
-      const said = judge ? (judge.faulted ?? (judge.gen === undefined && judge.phase === 'fix')) : false
+      const later = list.slice(i + 1)
+      const judge = r.who === 'agent' ? later.find(person) : later.find(x => x.who !== 'agent')
+      const said = judge && person(judge) ? (judge.faulted ?? (judge.gen === undefined && judge.phase === 'fix')) : false
       out.set(r, r.reason === 'aborted' || said)
     })
   }
