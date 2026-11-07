@@ -2,6 +2,10 @@
 
 All notable changes. Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions: [SemVer](https://semver.org/).
 
+## [1.6.1] — 2026-11-07
+
+- A test for the report pane's per-agent groups. No change in behaviour.
+
 ## [1.6.0] — 2026-11-07
 
 - Your own and plugin agents can be steered too. A new option, `agents`, lists agent types the pilot sets by their brief, like the built-in ones, even when the agent's file declares an effort: a plugin's agent (`lab:builder`), every agent of a plugin (`lab:*`), your own or a project's agent by its name (`reviewer`), or `*` for every agent that is not built in. Empty by default: nothing changes until you list one. An effort named in the Agent call, `CLAUDE_CODE_SUBAGENT_EFFORT`, a number budget and a model the pilot does not manage still win; forks, teammates and workflow agents are left alone.
