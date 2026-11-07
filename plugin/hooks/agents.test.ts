@@ -19,7 +19,7 @@ const BRIEF = 'Add a short usage note to the README under the install section. C
 
 /** A session on SESSION; the classifier answers each call from `replies`, in turn. Records go to an in-memory disk. */
 async function session($: Engine, on: On, replies: string[], interactive = true, env: Record<string, string> = {}, said: { role: string; text: string }[] = []) {
-  const seen = { prompts: [] as string[], sent: [] as unknown[], main: [] as unknown[], files: new Map<string, string>() }
+  const seen = { prompts: [] as string[], sent: [] as unknown[], main: [] as unknown[], files: new Map<string, string>(), logs: [] as string[], spawned: [] as string[] }
   on('command.register', () => ({ value: { command: 'effort-pilot' } }))
   on('session.model', () => ({ value: SESSION }))
   on('session.authorize', () => ({ value: { handle: 'h', kind: 'bearer' as const } }))
@@ -44,9 +44,15 @@ async function session($: Engine, on: On, replies: string[], interactive = true,
   on('classic.UserPromptSubmit', () => ({}) as never)
   on('ui.status', () => ({ value: undefined }))
   on('ui.toast', () => ({ value: undefined }))
-  on('ui.log', () => ({ value: undefined }))
+  on('ui.log', (_$, e) => {
+    seen.logs.push(e.text)
+    return { value: undefined }
+  })
   on('session.start', () => ({ cwd: '/' }))
-  on('agent.spawn', (_$, e) => ({ model: e.model ?? SESSION, agentId: 'a1' }))
+  on('agent.spawn', (_$, e) => {
+    seen.spawned.push(e.description)
+    return { model: e.model ?? SESSION, agentId: 'a1' }
+  })
   on('turn.start', (_$, e) => ({ turnId: e.turnId }))
   on('turn.step', async function* (_$, e) {
     ;(e.agentId !== undefined ? seen.sent : seen.main).push(e.effort)
@@ -60,7 +66,7 @@ async function session($: Engine, on: On, replies: string[], interactive = true,
 /** Who provides an agent type: a plugin's (`plugin:name`), else the project's own. */
 const provider = (type: string) => (type.includes(':') ? { plugin: type.split(':')[0]!, tier: 'user' } : { plugin: 'project', tier: 'user' })
 
-type Spawn = { effort?: string | number; model?: string; call?: { effort?: string }; spawn?: Record<string, unknown>; text?: string; turn?: string }
+type Spawn = { effort?: string | number; model?: string; call?: { effort?: string }; spawn?: Record<string, unknown>; text?: string; turn?: string; steps?: number }
 /** The main loop's first request at xhigh, then an agent of `type` spawned, its first request at `effort` on `model`. */
 async function spawn($: Engine, type: string, o: Spawn = {}) {
   const text = o.text ?? BRIEF
@@ -72,7 +78,9 @@ async function spawn($: Engine, type: string, o: Spawn = {}) {
   await $.tool.call({ tool: 'Agent', prompt: text, description: 'add the note', subagent_type: type, tool_use_id: turn, ...o.call } as never)
   await $.agent.spawn({ prompt: text, description: 'add the note', subagentType: type, parentModel: SESSION, provider: provider(type), tool_use_id: turn, ...o.spawn } as never)
   await $.turn.start({ text, turnId: turn, agentId: 'a1' } as never)
-  for await (const _ of $.turn.step({ turnId: turn, index: 0, model: o.model ?? SESSION, effort: (o.effort ?? 'high') as never, messageCount: 1, agentId: 'a1' } as never)) { /* drain */ }
+  for (let index = 0; index < (o.steps ?? 1); index++) {
+    for await (const _ of $.turn.step({ turnId: turn, index, model: o.model ?? SESSION, effort: (o.effort ?? 'high') as never, messageCount: 1 + index, agentId: 'a1' } as never)) { /* drain */ }
+  }
   await $.turn.complete({ turnId: turn, answer: 'done', durationMs: 5, isAborted: false, reason: 'answer', agentId: 'a1' } as never)
 }
 
@@ -212,6 +220,95 @@ describe('the agents setting', () => {
   })
 })
 
+const BUILTIN = { provider: { plugin: 'engine', tier: 'core' } }
+
+describe('the effort a subagent runs at, as the person sees it', () => {
+  test('an unlisted plugin agent with its own high gets one transcript line at its first request, none on later ones', async ($, on) => {
+    const seen = await session($, on, [pick('implement')])
+    await spawn($, 'lab:builder', { steps: 3 })
+    expect(seen.logs).toEqual(['Effort Pilot: lab:builder «add the note» — effort high (its own)'])
+    expect(seen.spawned).toEqual(['add the note'])
+  })
+
+  test('the band and stats show its level once seen: high (own)', async ($, on) => {
+    const seen = await session($, on, [pick('implement')])
+    await spawn($, 'lab:builder')
+    const stats = await $.command.run({ command: 'effort-pilot', args: 'stats' } as never)
+    expect(stats.text).toContain('lab:builder «add the note»: high (own)')
+    expect(seen.logs.length).toBe(1)
+  })
+
+  test('a resumed agent gets no second line while its effort stays the same', async ($, on) => {
+    const seen = await session($, on, [pick('implement')])
+    await spawn($, 'lab:builder')
+    await spawn($, 'lab:builder', { text: 'Which file did you change?', turn: 's2', spawn: { resume: { agentId: 'a1' } } })
+    expect(seen.logs.length).toBe(1)
+  })
+
+  test('a resumed agent gets a line again when its effort changed', async ($, on) => {
+    const seen = await session($, on, [pick('implement')])
+    await spawn($, 'lab:builder')
+    await spawn($, 'lab:builder', { effort: 'xhigh', text: 'Which file did you change?', turn: 's2', spawn: { resume: { agentId: 'a1' } } })
+    expect(seen.logs).toEqual([
+      'Effort Pilot: lab:builder «add the note» — effort high (its own)',
+      'Effort Pilot: lab:builder «add the note» — effort xhigh (its own)',
+    ])
+  })
+
+  test('an effort the Agent call names is shown on its description, with no line', async ($, on) => {
+    const seen = await session($, on, [pick('implement')])
+    await spawn($, 'lab:builder', { effort: 'xhigh', call: { effort: 'xhigh' } })
+    expect(seen.spawned).toEqual(['add the note · effort xhigh'])
+    expect(seen.logs).toEqual([])
+  })
+
+  test('a steered built-in shows the pilot\'s level on its description, as before, with no line', async ($, on) => {
+    const seen = await session($, on, [pick('implement')])
+    await spawn($, 'general-purpose', { effort: 'xhigh', spawn: BUILTIN })
+    expect(seen.sent).toEqual(['medium'])
+    expect(seen.spawned).toEqual(['add the note · effort med'])
+    expect(seen.logs).toEqual([])
+  })
+
+  test('a nested steered agent, spawned by another subagent, gets a line', async ($, on) => {
+    const seen = await session($, on, [pick('implement')])
+    await spawn($, 'general-purpose', { effort: 'xhigh', spawn: { ...BUILTIN, parentAgentId: 'p1' } })
+    expect(seen.sent).toEqual(['medium'])
+    expect(seen.logs).toEqual(['Effort Pilot: general-purpose «add the note» — effort med (set by the pilot)'])
+  })
+
+  test('a control run gets a line naming the effort it goes at', { options: { agents: 'lab:builder', measure: true, controlShare: 100 } }, async ($, on) => {
+    const seen = await session($, on, [pick('implement')])
+    await spawn($, 'lab:builder')
+    expect(seen.sent).toEqual(['high'])
+    expect(seen.logs).toEqual(['Effort Pilot: lab:builder «add the note» — effort high (its own, measuring)'])
+  })
+
+  test('an agent on a model the pilot does not manage gets a line with the level its request carries', async ($, on) => {
+    const seen = await session($, on, [pick('implement')])
+    await spawn($, 'general-purpose', { model: 'claude-sonnet-5-5', spawn: { ...BUILTIN, model: 'claude-sonnet-5-5' } })
+    expect(seen.logs).toEqual(['Effort Pilot: general-purpose «add the note» — effort high (not managed on claude-sonnet-5-5)'])
+  })
+
+  test('a long description is cut in the line', async ($, on) => {
+    const seen = await session($, on, [pick('implement')])
+    const description = 'add a short usage note to the readme under the install section'
+    await spawn($, 'lab:builder', { spawn: { description } })
+    expect(seen.logs[0]).toContain('«add a short usage note to the readme un…»')
+  })
+
+  test('a level the classifier reads in a brief is no ask: the agent goes at its phase\'s effort, recorded without asked', { options: { measure: true, controlShare: 0 } }, async ($, on) => {
+    const max = JSON.stringify({ phase: 'chat', hard: false, continues: false, asked: 'max', build: 'high', faulted: false, why: 'map the code' })
+    const seen = await session($, on, [max])
+    await spawn($, 'Explore', { effort: 'xhigh', text: 'Map every caller of the export helper. Thoroughness: very thorough.', spawn: BUILTIN })
+    expect(seen.sent).toEqual(['medium'])
+    expect(seen.spawned).toEqual(['add the note · effort med'])
+    const [record] = seen.records()
+    expect(record).toMatchObject({ who: 'agent', agent: 'Explore', chosen: 'medium', sent: 'medium' })
+    expect(record.asked).toBe(undefined)
+  })
+})
+
 /** A headless session's turn started by `text` from `kind`: one request at high, completed. */
 async function headlessTurn($: Engine, turnId: string, text: string, kind: string) {
   await $.prompt.submit({ text, origin: { kind } } as never)
@@ -283,6 +380,17 @@ describe('a headless session run as an agent', () => {
     await headlessTurn($, 't1', 'The note is in the wrong section: move it.', 'sdk')
     expect(seen.prompts.some(p => p.includes('subagent of type'))).toBe(false)
     expect(seen.records()[0]).toMatchObject({ who: 'person', agent: 'lab:builder', via: 'session' })
+  })
+
+  test('a level the classifier reads in its first prompt is no ask: the brief goes at its phase\'s effort', { options: { headless: true, measure: true, controlShare: 0 } }, async ($, on) => {
+    const max = JSON.stringify({ phase: 'implement', hard: false, continues: false, asked: 'max', build: 'none', faulted: false, why: 'add the note' })
+    const seen = await session($, on, [max], false)
+    await startedAs($, 'lab:builder')
+    await headlessTurn($, 't1', BRIEF, 'sdk')
+    expect(seen.main).toEqual(['medium'])
+    const [first] = seen.records()
+    expect(first).toMatchObject({ who: 'agent', chosen: 'medium', sent: 'medium' })
+    expect(first.asked).toBe(undefined)
   })
 
   test('a headless session not started as an agent is routed as before', { options: { headless: true, measure: true, controlShare: 0 } }, async ($, on) => {

@@ -3,7 +3,7 @@ import type { EngineInterface, Register } from 'claude-code'
 
 import type { AgentRun, Config, Effort, Mode, Route, Spend, Tally, Task, TurnRecord, Who } from '../types'
 import {
-  afterPlan, asideText, briefPrompt, cacheRewritten, commandText, unasked, carry, configFrom, DEFAULTS, EFFORTS, flagOn, forAgent, forNotice, listedAgent, managed as managedBy,
+  afterPlan, asideText, briefPrompt, cacheRewritten, commandText, unasked, carry, configFrom, DEFAULTS, EFFORTS, flagOn, forAgent, forNotice, fromBrief, listedAgent, managed as managedBy,
   midTurn, noticeOf, parse, parseRecords, prompt, promptOf, recentOf, report, reportData, sameModel, seedPrompt, SHORT, SYSTEM, wholeRequest,
 } from './route'
 import type { Aside, Step } from './route'
@@ -198,14 +198,16 @@ async function briefed($: EngineInterface, text: string) {
   const type = sessionAgent()
   if (!type || (await read($, task)) !== null || (await read($, route)) !== null) return false
   if (recentOf(await $.session.messages().catch(() => []), text)) return false
-  const { route: pick } = await ask($, briefPrompt(type, '', text, null, await noUltrathink($)), true).catch(() => ({ route: null }))
+  const { route: read0 } = await ask($, briefPrompt(type, '', text, null, await noUltrathink($)), true).catch(() => ({ route: null }))
+  // A brief is the launcher's text, not the person's: a level it seems to name is no ask.
+  const pick = read0 && fromBrief(read0, config)
   turnPick = pick
   lastPick = null
   if (!pick) return true
   const next = forAgent(pick, config)
   await update($, who, () => 'agent' as Who)
-  await update($, arm, () => (!next.asked && differs(next.effort) && Math.random() < share() ? 'control' : 'auto'))
-  await update($, task, () => ({ phase: pick.phase, hard: pick.hard, effort: next.effort, text, ...(pick.asked ? { asked: pick.asked } : {}), ...(pick.build ? { build: pick.build } : {}) }))
+  await update($, arm, () => (differs(next.effort) && Math.random() < share() ? 'control' : 'auto'))
+  await update($, task, () => ({ phase: pick.phase, hard: pick.hard, effort: next.effort, text }))
   await settle($, next)
   await publish($)
   return true
@@ -488,6 +490,21 @@ type Decision = {
   listed: boolean
   acc: typeof EMPTY
   model: string
+  /**
+   * Why the pilot did not steer it, as known at spawn: the Agent call named an effort, CLAUDE_CODE_SUBAGENT_EFFORT is
+   * set, the person's own say (shadow mode, /effort set by hand), a model a switch would rewrite the cache on, or its
+   * brief was not classified (none, or no classifier answer). null: nothing held it back at spawn.
+   */
+  held: 'call' | 'env' | 'shadow' | 'pin' | 'aside' | 'unread' | null
+  /** The level its description shows, set at spawn; null where none is shown. */
+  shown: Effort | null
+  /** Spawned by another subagent: a rewrite of its description is not reliably shown, so a transcript line tells it. */
+  nested: boolean
+  /** The level the person was last told for this agent (its description or a transcript line); a resumed run carries it. */
+  told: Effort | number | null | undefined
+  /** The effort its first request went at, and who set it in a word (absent where the pilot did): for the band. */
+  seen?: Effort | number | null
+  tag?: string
 }
 // A message typed mid-turn reaches the model on the next request: that request carries new input.
 let freshInput = false
@@ -524,7 +541,8 @@ async function unrouted($: EngineInterface) {
 }
 const byBrief = new Map<string, Decision>()
 const byAgent = new Map<string, Decision>()
-const explicit = new Set<string>()
+// The effort each Agent call named, by its tool_use_id.
+const named = new Map<string, unknown>()
 // The session's own effort as the main loop last saw it (before the pilot's rewrite), and its model: what a subagent
 // on that model inherits. One on another model starts at that model's saved effort or its default.
 let sessionEffort: string | number | undefined
@@ -540,6 +558,7 @@ async function showAgent($: EngineInterface, id: string, d: Decision, status: Ag
     id, type: d.type, description: d.description, status,
     effort: d.source === 'auto' ? (d.route?.effort ?? null) : null,
     source: d.source, why: d.route?.why ?? '',
+    ...(d.seen !== undefined ? { seen: d.seen } : {}), ...(d.tag ? { tag: d.tag } : {}),
   }
   await update($, agents, list => [...list.filter(a => a.id !== id), row].slice(-8))
 }
@@ -551,7 +570,7 @@ async function keepAgent($: EngineInterface, d: Decision, reason: string) {
     t: await $.clock.now(), s: await $.session.id(), arm: d.arm, phase: r.phase, hard: r.hard, chosen: r.effort,
     base: d.acc.base, sent: d.acc.sent, model: d.model, steps: d.acc.steps, out: d.acc.out, input: d.acc.input,
     cacheRead: d.acc.cacheRead, cacheWrite: d.acc.cacheWrite, ms: Math.round((await $.clock.now()) - d.acc.at), reason,
-    who: 'agent', agent: d.type, ...(d.listed ? { via: 'listed' as const } : {}), trace: d.acc.trace, gen: Math.round(d.acc.gen), ...(r.asked ? { asked: true as const } : {}),
+    who: 'agent', agent: d.type, ...(d.listed ? { via: 'listed' as const } : {}), trace: d.acc.trace, gen: Math.round(d.acc.gen),
     ...picked(d.pick, r),
   })
 }
@@ -580,6 +599,30 @@ const picked = (pick: Route | null, r: Route) => ({
 })
 
 const level = (x: unknown): Effort | null => (typeof x === 'string' ? (EFFORTS.find(l => l === x) ?? null) : null)
+
+/** Why a subagent goes at the effort its first request carries, in words, and a word for the band (none: the pilot's). */
+function reasonOf(d: Decision, name: string): { text: string; tag?: string } {
+  if (d.held === 'call') return { text: 'as the call asked', tag: 'call' }
+  if (d.held === 'env') return { text: 'CLAUDE_CODE_SUBAGENT_EFFORT', tag: 'env' }
+  if (d.held === 'shadow') return { text: 'left as is: Effort Pilot is in shadow mode', tag: 'shadow' }
+  if (d.held === 'pin') return { text: 'left at the session\'s: you set /effort by hand', tag: 'yours' }
+  if (d.held === 'aside' || aside(name) !== null) return { text: `left at the session's: a switch on ${name} would rewrite the prompt cache`, tag: 'yours' }
+  if (d.source === 'skip') return { text: `not managed on ${name}`, tag: 'not managed' }
+  if (d.source === 'auto') return { text: 'set by the pilot' }
+  if (d.source === 'control') return { text: d.listed ? 'its own, measuring' : 'left at the session\'s, measuring', tag: 'control' }
+  if (d.held === 'unread') return { text: 'left as is: its brief was not classified', tag: 'own' }
+  return { text: 'its own', tag: 'own' }
+}
+const levelText = (l: Effort | number | null | undefined) => (l == null ? null : typeof l === 'number' ? String(l) : SHORT[l])
+/** A short description for a line: at most 40 characters. */
+const cut = (text: string) => (text.length > 40 ? `${text.slice(0, 39).trimEnd()}…` : text)
+/** A subagent's effort on the band and in stats: the pilot's level, else the one seen with who set it. */
+function agentWord(a: AgentRun) {
+  if (a.source === 'auto' && a.effort && !a.tag) return SHORT[a.effort]
+  const seen = levelText(a.seen)
+  if (seen) return `${seen} (${a.tag ?? 'own'})`
+  return a.source === 'control' ? 'inherited (control)' : a.source === 'skip' ? 'not managed' : 'its own'
+}
 
 export const register: Register = (on, options) => {
   config = configFrom(options)
@@ -643,7 +686,7 @@ export const register: Register = (on, options) => {
       const t = await read($, tally)
       const rows = EFFORTS.filter(l => t[l]).map(l => `${l}: ${t[l]?.steps} requests, ${t[l]?.out} output tokens`)
       const turns = (await read($, trail)).map(describe)
-      const subs = (await read($, agents)).map(a => `${a.type} «${a.description}»: ${a.effort ?? 'its own'} (${a.source}${a.status === 'running' ? ', running' : ''})${a.why ? ` — ${a.why}` : ''}`)
+      const subs = (await read($, agents)).map(a => `${a.type} «${a.description}»: ${agentWord(a)}${a.status === 'running' ? ' · running' : ''}${a.why ? ` — ${a.why}` : ''}`)
       return {
         text: [
           ...(why ? [`Effort Pilot: ${asideText(name, why)}`] : []),
@@ -770,28 +813,41 @@ export const register: Register = (on, options) => {
 
   // An Agent call that names its effort has decided: the spawn it makes is left alone.
   on('tool.call', { tool: 'Agent' }, async ($, e, next) => {
-    if (e.effort !== undefined && e.tool_use_id) explicit.add(e.tool_use_id)
+    if (e.effort !== undefined && e.tool_use_id) named.set(e.tool_use_id, e.effort)
     return next(e)
   }).catch(($, e, next) => next(e))
 
+  // Every subagent the pilot may see (not a fork, a teammate or a workflow's agent; a headless run only when steered)
+  // gets a decision, so its first request is seen and its effort told: on its description where known at spawn, else
+  // in a transcript line then.
   on('agent.spawn', async ($, e, next) => {
-    if (e.fork || e.workflow || e.isTeammate || (await read($, mode)) !== 'auto' || (await read($, pin)) !== null) return next(e)
-    if (!steered()) return next(e)
+    if (e.fork || e.workflow || e.isTeammate || !steered()) return next(e)
+    const m = await read($, mode)
+    if (m === 'off') return next(e)
     await credential($)
-    // Where a switch would rewrite the prompt cache, the subagent keeps the session's effort: nothing to classify.
-    if (aside(e.model ?? e.parentModel) !== null) return next(e)
     const resumed = e.resume ? byAgent.get(e.resume.agentId) : undefined
     const builtin = e.provider.plugin === 'engine'
     const listed = listedAgent(e.subagentType, config, builtin)
     // An effort the Agent call names, or the one the person set for every subagent: theirs, nothing to classify.
-    const named = explicit.has(e.tool_use_id) || !!(await $.env.get('CLAUDE_CODE_SUBAGENT_EFFORT').catch(() => undefined))?.trim()
+    const call = named.get(e.tool_use_id)
+    named.delete(e.tool_use_id)
+    const env = (await $.env.get('CLAUDE_CODE_SUBAGENT_EFFORT').catch(() => undefined))?.trim()
+    const held: Decision['held'] = call !== undefined ? 'call' : env ? 'env'
+      : m !== 'auto' ? 'shadow' : (await read($, pin)) !== null ? 'pin'
+      // Where a switch would rewrite the prompt cache, the subagent keeps the session's effort: nothing to classify.
+      : aside(e.model ?? e.parentModel) !== null ? 'aside'
+      : null
     const d: Decision = {
       route: null, pick: null, task: resumed?.task ?? null, arm: 'auto', source: 'own', type: e.subagentType,
       description: e.description, checked: false, listed, acc: { ...EMPTY, at: await $.clock.now() }, model: '',
+      held, shown: null, nested: e.parentAgentId !== undefined, told: resumed?.told,
     }
-    let description = e.description
-    if ((builtin || listed) && !named && e.prompt.trim()) {
-      const { route: pick } = await ask($, briefPrompt(e.subagentType, e.description, e.prompt, d.task, await noUltrathink($)), true).catch(() => ({ route: null }))
+    if (!held && (builtin || listed)) {
+      const read0 = e.prompt.trim()
+        ? (await ask($, briefPrompt(e.subagentType, e.description, e.prompt, d.task, await noUltrathink($)), true).catch(() => ({ route: null }))).route
+        : null
+      // A brief is the calling agent's text, not the person's: a level it seems to name is no ask.
+      const pick = read0 && fromBrief(read0, config)
       if (pick) {
         const carried = d.task ? carry(d.task, pick, e.prompt, config) : { route: pick, task: { phase: pick.phase, hard: pick.hard, effort: pick.effort, text: e.prompt } }
         d.route = forAgent(carried.route, config)
@@ -799,11 +855,18 @@ export const register: Register = (on, options) => {
         d.task = carried.task
         // A listed agent's own effort is its definition's (high, as such agents declare), whatever the session's: the
         // control run goes at it.
-        d.arm = (listed ? !d.route.asked && d.route.effort !== 'high' : differs(d.route.effort)) && Math.random() < share() ? 'control' : 'auto'
+        d.arm = (listed ? d.route.effort !== 'high' : differs(d.route.effort)) && Math.random() < share() ? 'control' : 'auto'
         d.source = d.arm === 'auto' ? 'auto' : 'control'
-        // Shown on the agent's line in the transcript when it will hold: on a model the pilot steers.
-        if (d.source === 'auto' && managed(e.model ?? e.parentModel)) description = `${e.description} · effort ${SHORT[d.route.effort]}`
-      }
+      } else d.held = 'unread'
+    }
+    // Shown on the agent's line in the transcript where known now and it will hold: the pilot's level on a model it
+    // steers, or the level the call or the setting names (a number is left out). A resumed run keeps its description.
+    const known = d.source === 'auto' && managed(e.model ?? e.parentModel) ? d.route!.effort
+      : held === 'call' ? level(call) : held === 'env' ? level(env!.toLowerCase()) : null
+    let description = e.description
+    if (known && !e.resume) {
+      d.shown = known
+      description = `${e.description} · effort ${SHORT[known]}`
     }
     byBrief.set(e.prompt, d)
     const result = await next({ ...e, description })
@@ -857,6 +920,17 @@ export const register: Register = (on, options) => {
         if (!managed(e.model)) d.source = 'skip'
         else if (typeof e.effort === 'number') d.source = 'own'
         else if (!d.listed && sessionEffort !== undefined && sameModel(e.model, sessionModel) && e.effort !== sessionEffort) d.source = 'own'
+        // What this request goes at, and why: told once a run in a transcript line where its description did not show
+        // it, or always for a nested agent; a resumed run only when its effort changed.
+        const goes = d.source === 'auto' ? d.route!.effort : (e.effort ?? null)
+        const why = reasonOf(d, e.model)
+        d.seen = goes
+        d.tag = why.tag
+        if ((d.nested || d.shown !== goes) && goes !== d.told) {
+          const at = levelText(goes)
+          $.ui.log(`Effort Pilot: ${d.type} «${cut(d.description)}» — ${at ? `effort ${at}` : 'no effort level'} (${why.text})`)
+        }
+        d.told = goes
         await showAgent($, e.agentId, d, 'running')
       }
       const effort = d.source === 'auto' ? d.route?.effort : undefined
@@ -986,7 +1060,6 @@ export const register: Register = (on, options) => {
     if (r === null) return below
     const [list, p, ms, w, subs] = [await read($, trail), await read($, pin), await read($, latency), await read($, who), await read($, agents)]
     const shown = subs.filter(a => a.status === 'running').concat(subs.filter(a => a.status === 'done')).slice(0, 4)
-    const word = (a: AgentRun) => a.source === 'auto' && a.effort ? SHORT[a.effort] : a.source === 'control' ? 'inherited (control)' : a.source === 'skip' ? 'not managed' : 'its own'
     // A control turn goes at the person's own effort: say that effort first, and the pilot's pick only as what it
     // would have been, so the pick is never read as the effort in force.
     if (m === 'auto' && !p && (await read($, arm)) === 'control') {
@@ -1016,7 +1089,7 @@ export const register: Register = (on, options) => {
         <Text dimColor>{(await read($, planMode)) ? `plan mode → ${SHORT[await planLevel($)]} · ` : ''}{w === 'notification' ? 'notification · ' : ''}{r.why}{ms ? ` · classified in ${(ms / 1000).toFixed(1)}s` : ''}</Text>
         {shown.length ? (
           <Text dimColor>
-            subagents: {shown.map(a => `${a.type} «${a.description.slice(0, 28)}» ${word(a)}${a.status === 'done' ? ' ✓' : ''}`).join(' · ')}
+            subagents: {shown.map(a => `${a.type} «${a.description.slice(0, 28)}» ${agentWord(a)}${a.status === 'done' ? ' ✓' : ''}`).join(' · ')}
           </Text>
         ) : null}
         {below}

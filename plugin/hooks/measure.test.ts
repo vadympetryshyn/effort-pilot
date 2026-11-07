@@ -196,12 +196,13 @@ async function subagent($: Engine, on: On, answer: string) {
   await $.turn.complete({ turnId: 'st1', answer: 'done', durationMs: 5, isAborted: false, reason: 'answer', agentId: 'a1' } as never)
 }
 
-test('a subagent whose brief names an effort is recorded as asked', { options: { measure: true, controlShare: 0 } }, async ($, on) => {
+test('a level the classifier reads in a subagent\'s brief is no ask: recorded as the pilot\'s pick', { options: { measure: true, controlShare: 0 } }, async ($, on) => {
   const fs = disk(on)
   await subagent($, on, '{"phase":"analyze","hard":false,"continues":false,"asked":"medium","build":"none","faulted":false,"why":"search the code"}')
   const [record] = (fs.text(`${STORE}/${slotFile(NOW)}`) ?? '').split('\n').filter(Boolean).map(l => JSON.parse(l))
   expect(record.who).toBe('agent')
-  expect(record.asked).toBe(true)
+  expect(record.asked).toBe(undefined)
+  expect(record.chosen).toBe('high')
 })
 
 test('a subagent whose brief names no effort is recorded as the pilot\'s pick', { options: { measure: true, controlShare: 0 } }, async ($, on) => {

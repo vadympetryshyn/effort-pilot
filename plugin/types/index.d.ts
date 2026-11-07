@@ -115,6 +115,10 @@ export type AgentRun = {
   source: 'auto' | 'control' | 'own' | 'skip'
   why: string
   status: 'running' | 'done'
+  /** The effort its first request went at, once seen (a number as given); absent before it, null where none went. */
+  seen?: Effort | number | null
+  /** Who set that effort, in a word or two (own, call, env, control, not managed, yours); absent where the pilot did. */
+  tag?: string
 }
 
 /** What the pilot itself spent classifying a turn's messages: Haiku calls, their tokens, the wait before the turn. */

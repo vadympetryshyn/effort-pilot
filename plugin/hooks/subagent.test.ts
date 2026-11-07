@@ -79,12 +79,12 @@ describe('a built-in subagent', () => {
     expect(seen.sent).toEqual([20000])
   })
 
-  test('with CLAUDE_CODE_SUBAGENT_EFFORT set is left at it, with no classifier call', async ($, on) => {
+  test('with CLAUDE_CODE_SUBAGENT_EFFORT set is left at it, shown on its description, with no classifier call', async ($, on) => {
     const seen = await session($, on, { CLAUDE_CODE_SUBAGENT_EFFORT: 'low' })
     await subagent($, 'claude-fable-5-1', 'claude-fable-5-1', 'low')
     expect(seen.calls).toBe(0)
     expect(seen.sent).toEqual(['low'])
-    expect(seen.spawned).toEqual(['investigate'])
+    expect(seen.spawned).toEqual(['investigate · effort low'])
   })
 
   test('with CLAUDE_CODE_DISABLE_ULTRATHINK set, its brief is classified knowing the keyword asks for nothing', async ($, on) => {

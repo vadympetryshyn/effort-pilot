@@ -337,6 +337,19 @@ export function midTurn(task: Task | null, current: Route | null, pick: Route, t
 }
 
 /**
+ * The classifier's pick for an agent's brief, without the levels it read as asked for: a brief is the calling agent's
+ * text, not the person's, so a level it seems to name ("very thorough", a model's name) is no ask. The effort comes from
+ * the phase alone; the Agent call's `effort` parameter is the channel for an explicit level.
+ */
+export function fromBrief(pick: Route, config: Config = DEFAULTS): Route {
+  if (!pick.asked && !pick.build && !pick.release) return pick
+  const { asked, build: _b, release: _r, ...rest } = pick
+  // parse() leads the why with the level it read as asked: that prefix is its own, dropped with the level.
+  const why = asked ? rest.why.replace(`you asked for ${asked}: `, '') : rest.why
+  return { ...rest, effort: effortFor(rest.phase, rest.hard, false, config), why }
+}
+
+/**
  * A subagent thinks at least at the build effort: it works alone, no one catches a shallow answer, and its mistakes flow
  * into the main work.
  */
