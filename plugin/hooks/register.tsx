@@ -928,7 +928,7 @@ export const register: Register = (on, options) => {
         d.tag = why.tag
         if ((d.nested || d.shown !== goes) && goes !== d.told) {
           const at = levelText(goes)
-          $.ui.log(`Effort Pilot: ${d.type} «${cut(d.description)}» — ${at ? `effort ${at}` : 'no effort level'} (${why.text})`)
+          $.ui.log(`${d.type} «${cut(d.description)}» — ${at ? `effort ${at}` : 'no effort level'} (${why.text})`)
         }
         d.told = goes
         await showAgent($, e.agentId, d, 'running')
@@ -1059,7 +1059,8 @@ export const register: Register = (on, options) => {
     }
     if (r === null) return below
     const [list, p, ms, w, subs] = [await read($, trail), await read($, pin), await read($, latency), await read($, who), await read($, agents)]
-    const shown = subs.filter(a => a.status === 'running').concat(subs.filter(a => a.status === 'done')).slice(0, 4)
+    // The running agents first, then the latest finished (the list holds the newest last).
+    const shown = subs.filter(a => a.status === 'running').concat(subs.filter(a => a.status === 'done').reverse()).slice(0, 4)
     // A control turn goes at the person's own effort: say that effort first, and the pilot's pick only as what it
     // would have been, so the pick is never read as the effort in force.
     if (m === 'auto' && !p && (await read($, arm)) === 'control') {

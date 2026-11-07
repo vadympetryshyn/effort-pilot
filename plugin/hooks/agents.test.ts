@@ -49,9 +49,10 @@ async function session($: Engine, on: On, replies: string[], interactive = true,
     return { value: undefined }
   })
   on('session.start', () => ({ cwd: '/' }))
+  on('ui.render', () => ({ type: 'Box', children: [] }) as never)
   on('agent.spawn', (_$, e) => {
     seen.spawned.push(e.description)
-    return { model: e.model ?? SESSION, agentId: 'a1' }
+    return { model: e.model ?? SESSION, agentId: e.resume?.agentId ?? e.name ?? 'a1' }
   })
   on('turn.start', (_$, e) => ({ turnId: e.turnId }))
   on('turn.step', async function* (_$, e) {
@@ -66,22 +67,23 @@ async function session($: Engine, on: On, replies: string[], interactive = true,
 /** Who provides an agent type: a plugin's (`plugin:name`), else the project's own. */
 const provider = (type: string) => (type.includes(':') ? { plugin: type.split(':')[0]!, tier: 'user' } : { plugin: 'project', tier: 'user' })
 
-type Spawn = { effort?: string | number; model?: string; call?: { effort?: string }; spawn?: Record<string, unknown>; text?: string; turn?: string; steps?: number }
+type Spawn = { effort?: string | number; model?: string; call?: { effort?: string }; spawn?: Record<string, unknown>; text?: string; turn?: string; steps?: number; id?: string; main?: boolean }
 /** The main loop's first request at xhigh, then an agent of `type` spawned, its first request at `effort` on `model`. */
 async function spawn($: Engine, type: string, o: Spawn = {}) {
   const text = o.text ?? BRIEF
   const turn = o.turn ?? 's1'
-  if (!o.spawn?.resume) {
+  const id = o.id ?? 'a1'
+  if (!o.spawn?.resume && o.main !== false) {
     await $.turn.start({ text: 'Have the builder add the note.', turnId: 'm1' })
     for await (const _ of $.turn.step({ turnId: 'm1', index: 0, model: SESSION, effort: 'xhigh', messageCount: 1 })) { /* drain */ }
   }
   await $.tool.call({ tool: 'Agent', prompt: text, description: 'add the note', subagent_type: type, tool_use_id: turn, ...o.call } as never)
-  await $.agent.spawn({ prompt: text, description: 'add the note', subagentType: type, parentModel: SESSION, provider: provider(type), tool_use_id: turn, ...o.spawn } as never)
-  await $.turn.start({ text, turnId: turn, agentId: 'a1' } as never)
+  await $.agent.spawn({ prompt: text, description: 'add the note', subagentType: type, parentModel: SESSION, provider: provider(type), tool_use_id: turn, ...(o.id ? { name: o.id } : {}), ...o.spawn } as never)
+  await $.turn.start({ text, turnId: turn, agentId: id } as never)
   for (let index = 0; index < (o.steps ?? 1); index++) {
-    for await (const _ of $.turn.step({ turnId: turn, index, model: o.model ?? SESSION, effort: (o.effort ?? 'high') as never, messageCount: 1 + index, agentId: 'a1' } as never)) { /* drain */ }
+    for await (const _ of $.turn.step({ turnId: turn, index, model: o.model ?? SESSION, effort: (o.effort ?? 'high') as never, messageCount: 1 + index, agentId: id } as never)) { /* drain */ }
   }
-  await $.turn.complete({ turnId: turn, answer: 'done', durationMs: 5, isAborted: false, reason: 'answer', agentId: 'a1' } as never)
+  await $.turn.complete({ turnId: turn, answer: 'done', durationMs: 5, isAborted: false, reason: 'answer', agentId: id } as never)
 }
 
 describe('the agents setting', () => {
@@ -226,7 +228,7 @@ describe('the effort a subagent runs at, as the person sees it', () => {
   test('an unlisted plugin agent with its own high gets one transcript line at its first request, none on later ones', async ($, on) => {
     const seen = await session($, on, [pick('implement')])
     await spawn($, 'lab:builder', { steps: 3 })
-    expect(seen.logs).toEqual(['Effort Pilot: lab:builder «add the note» — effort high (its own)'])
+    expect(seen.logs).toEqual(['lab:builder «add the note» — effort high (its own)'])
     expect(seen.spawned).toEqual(['add the note'])
   })
 
@@ -236,6 +238,21 @@ describe('the effort a subagent runs at, as the person sees it', () => {
     const stats = await $.command.run({ command: 'effort-pilot', args: 'stats' } as never)
     expect(stats.text).toContain('lab:builder «add the note»: high (own)')
     expect(seen.logs.length).toBe(1)
+  })
+
+  test('the band lists the running agents, then the latest finished ones, newest first', async ($, on) => {
+    await session($, on, [pick('implement')])
+    await $.prompt.submit({ text: 'Have the builders add the notes.', origin: { kind: 'composer' } } as never)
+    for (const n of [1, 2, 3, 4, 5]) await spawn($, `lab:b${n}`, { id: `a${n}`, turn: `s${n}`, main: n === 1 })
+    // One still running: spawned, its first request seen, not completed.
+    await $.agent.spawn({ prompt: 'Check the notes.', description: 'check', subagentType: 'lab:live', parentModel: SESSION, provider: provider('lab:live'), tool_use_id: 's6', name: 'a6' } as never)
+    await $.turn.start({ text: 'Check the notes.', turnId: 's6', agentId: 'a6' } as never)
+    for await (const _ of $.turn.step({ turnId: 's6', index: 0, model: SESSION, effort: 'high', messageCount: 1, agentId: 'a6' } as never)) { /* drain */ }
+    const ui = await $.ui.mount({ plugin: 'effort-pilot', surface: 'terminal', component: 'AbovePrompt', props: { hasSurvey: false, isWorking: false, maxRows: 10 } as never })
+    const line = (await ui.find({ type: 'Text', text: /subagents:/ }))?.text ?? ''
+    await ui.unmount()
+    const order = [...line.matchAll(/lab:(\w+)/g)].map(m => m[1])
+    expect(order).toEqual(['live', 'b5', 'b4', 'b3'])
   })
 
   test('a resumed agent gets no second line while its effort stays the same', async ($, on) => {
@@ -250,8 +267,8 @@ describe('the effort a subagent runs at, as the person sees it', () => {
     await spawn($, 'lab:builder')
     await spawn($, 'lab:builder', { effort: 'xhigh', text: 'Which file did you change?', turn: 's2', spawn: { resume: { agentId: 'a1' } } })
     expect(seen.logs).toEqual([
-      'Effort Pilot: lab:builder «add the note» — effort high (its own)',
-      'Effort Pilot: lab:builder «add the note» — effort xhigh (its own)',
+      'lab:builder «add the note» — effort high (its own)',
+      'lab:builder «add the note» — effort xhigh (its own)',
     ])
   })
 
@@ -274,20 +291,20 @@ describe('the effort a subagent runs at, as the person sees it', () => {
     const seen = await session($, on, [pick('implement')])
     await spawn($, 'general-purpose', { effort: 'xhigh', spawn: { ...BUILTIN, parentAgentId: 'p1' } })
     expect(seen.sent).toEqual(['medium'])
-    expect(seen.logs).toEqual(['Effort Pilot: general-purpose «add the note» — effort med (set by the pilot)'])
+    expect(seen.logs).toEqual(['general-purpose «add the note» — effort med (set by the pilot)'])
   })
 
   test('a control run gets a line naming the effort it goes at', { options: { agents: 'lab:builder', measure: true, controlShare: 100 } }, async ($, on) => {
     const seen = await session($, on, [pick('implement')])
     await spawn($, 'lab:builder')
     expect(seen.sent).toEqual(['high'])
-    expect(seen.logs).toEqual(['Effort Pilot: lab:builder «add the note» — effort high (its own, measuring)'])
+    expect(seen.logs).toEqual(['lab:builder «add the note» — effort high (its own, measuring)'])
   })
 
   test('an agent on a model the pilot does not manage gets a line with the level its request carries', async ($, on) => {
     const seen = await session($, on, [pick('implement')])
     await spawn($, 'general-purpose', { model: 'claude-sonnet-5-5', spawn: { ...BUILTIN, model: 'claude-sonnet-5-5' } })
-    expect(seen.logs).toEqual(['Effort Pilot: general-purpose «add the note» — effort high (not managed on claude-sonnet-5-5)'])
+    expect(seen.logs).toEqual(['general-purpose «add the note» — effort high (not managed on claude-sonnet-5-5)'])
   })
 
   test('a long description is cut in the line', async ($, on) => {
