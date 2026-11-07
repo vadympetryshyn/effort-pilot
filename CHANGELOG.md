@@ -2,6 +2,12 @@
 
 All notable changes. Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions: [SemVer](https://semver.org/).
 
+## [1.7.0] — 2026-11-07
+
+- You see the effort of every subagent. Where it is known at spawn (set by the pilot, named in the Agent call, or `CLAUDE_CODE_SUBAGENT_EFFORT`), the agent's description ends in `· effort <level>`: it shows in the agents panel and in the agent's "finished" line. Where it is known only at the agent's first request (an agent running at the effort its own definition sets, a control run, a model the pilot does not manage, an agent started by another subagent), one dim line in the transcript says it, e.g. `effort-pilot: reviewer «Check the login flow» — effort high (its own)`. One line per agent run, not sent to the model.
+- The band and `/effort-pilot stats` show each subagent's real level and who set it (`high (own)`, `low (call)`, `med (not managed)`) instead of "its own"; the band lists the agents running, then the most recent finished ones.
+- A subagent's brief can no longer raise its effort as if you had asked for a level: the classifier sometimes read a brief such as "thoroughness: very thorough" as an ask for `max`. A brief now sets the effort by the kind of work only; to name a level for a subagent, use the Agent call's effort.
+
 ## [1.6.1] — 2026-11-07
 
 - A test for the report pane's per-agent groups. No change in behaviour.

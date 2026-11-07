@@ -70,7 +70,7 @@ A band above the prompt shows the effort now, how it got there and why. Follow-u
 
 - 🗣️ **Just say it.** "do this on max", "medium is enough", "plan it, then build on high" — in any language, typed or dictated. `ultrathink` runs that work at `xhigh`, as Claude Code does (with `CLAUDE_CODE_DISABLE_ULTRATHINK` set, the word asks for nothing). "back to auto" hands it back.
 - 🧭 **Plan mode** runs at `xhigh`; the approved plan is built at `medium`.
-- 🤖 **Subagents** get their own effort, on the session's model or another one (never below the build effort, `medium` by default). An effort the Agent call names, or `CLAUDE_CODE_SUBAGENT_EFFORT`, is left alone. Your own and plugin agents keep their own effort unless you list them (below).
+- 🤖 **Subagents** get their own effort, on the session's model or another one (never below the build effort, `medium` by default). An effort the Agent call names, or `CLAUDE_CODE_SUBAGENT_EFFORT`, is left alone. Your own and plugin agents keep their own effort unless you list them (below). Each subagent's effort is shown: in its description, or in one transcript line at its first request.
 - 🔔 **Background results** and messages from other sessions are read too: one the agent only relays or hands to the next agent goes at the build effort (at `high` while a plan or an analysis is under way); one that reports a failure, a background command's output, or a step in hard work keeps the effort of the work it serves.
 - ✋ **You stay in charge.** `/effort <level>` pins it; `/effort-pilot on` resumes.
 - 🔒 **Private.** Nothing leaves your machine but the Haiku call. Your effort setting is changed per message; the model is never changed, and the prompt cache stays intact (where a switch would rewrite it, Effort Pilot stands aside).
