@@ -493,9 +493,10 @@ type Decision = {
   /**
    * Why the pilot did not steer it, as known at spawn: the Agent call named an effort, CLAUDE_CODE_SUBAGENT_EFFORT is
    * set, the person's own say (shadow mode, /effort set by hand), a model a switch would rewrite the cache on, or its
-   * brief was not classified (none, or no classifier answer). null: nothing held it back at spawn.
+   * brief was not classified (none, or no classifier answer), or a resumed run whose brief this module never saw (the
+   * plugin reloaded mid-run): its wake-up message is no brief. null: nothing held it back at spawn.
    */
-  held: 'call' | 'env' | 'shadow' | 'pin' | 'aside' | 'unread' | null
+  held: 'call' | 'env' | 'shadow' | 'pin' | 'aside' | 'unread' | 'resumed' | null
   /** The level its description shows, set at spawn; null where none is shown. */
   shown: Effort | null
   /** Spawned by another subagent: a rewrite of its description is not reliably shown, so a transcript line tells it. */
@@ -611,6 +612,7 @@ function reasonOf(d: Decision, name: string): { text: string; tag?: string } {
   if (d.source === 'auto') return { text: 'set by the pilot' }
   if (d.source === 'control') return { text: d.listed ? 'its own, measuring' : 'left at the session\'s, measuring', tag: 'control' }
   if (d.held === 'unread') return { text: 'left as is: its brief was not classified', tag: 'own' }
+  if (d.held === 'resumed') return { text: 'left as is: resumed before the pilot saw its brief', tag: 'own' }
   return { text: 'its own', tag: 'own' }
 }
 const levelText = (l: Effort | number | null | undefined) => (l == null ? null : typeof l === 'number' ? String(l) : SHORT[l])
@@ -836,6 +838,9 @@ export const register: Register = (on, options) => {
       : m !== 'auto' ? 'shadow' : (await read($, pin)) !== null ? 'pin'
       // Where a switch would rewrite the prompt cache, the subagent keeps the session's effort: nothing to classify.
       : aside(e.model ?? e.parentModel) !== null ? 'aside'
+      // A resumed run with no brief seen (the plugin reloaded since its spawn), on this wake-up or an earlier one: the
+      // message that wakes it is no brief, so it keeps the effort it carries.
+      : e.resume && (!resumed || resumed.held === 'resumed') ? 'resumed'
       : null
     const d: Decision = {
       route: null, pick: null, task: resumed?.task ?? null, arm: 'auto', source: 'own', type: e.subagentType,

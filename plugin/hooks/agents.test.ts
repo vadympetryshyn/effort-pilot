@@ -195,6 +195,17 @@ describe('the agents setting', () => {
     expect(seen.sent).toEqual(['high', 'medium'])
   })
 
+  test('a listed agent resumed with no spawn seen before (the plugin reloaded mid-run) is not read from its wake-up message: it keeps its own effort', { options: { agents: '*' } }, async ($, on) => {
+    const seen = await session($, on, [pick('chat')])
+    await spawn($, 'lab:builder', { text: 'A background task finished: the tests passed.', steps: 2, spawn: { resume: { agentId: 'a1' } } })
+    expect(seen.prompts.length).toBe(0)
+    expect(seen.sent).toEqual(['high', 'high'])
+    expect(seen.logs).toEqual(['lab:builder «add the note» — effort high (left as is: resumed before the pilot saw its brief)'])
+    await spawn($, 'lab:builder', { text: 'Another background task finished.', turn: 's2', spawn: { resume: { agentId: 'a1' } } })
+    expect(seen.prompts.length).toBe(0)
+    expect(seen.sent).toEqual(['high', 'high', 'high'])
+  })
+
   test('a listed agent spawned in plan mode is set by its brief, as a built-in is', { options: { agents: '*' } }, async ($, on) => {
     const seen = await session($, on, [pick('implement')])
     await $.classic.UserPromptSubmit({ prompt: 'Plan a CSV export.', permission_mode: 'plan' } as never)

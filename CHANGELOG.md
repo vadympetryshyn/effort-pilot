@@ -2,6 +2,10 @@
 
 All notable changes. Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions: [SemVer](https://semver.org/).
 
+## [1.7.1] — 2026-11-07
+
+- A steered subagent woken again after `/reload-plugins` (or after the plugin was turned on mid-run) keeps the effort it runs at. The pilot had forgotten its brief, so it read the message that woke the agent, such as a background task's notification, as the whole brief and could lower the rest of a hard build. It now leaves such a run at its own effort; its transcript line says `left as is: resumed before the pilot saw its brief`.
+
 ## [1.7.0] — 2026-11-07
 
 - You see the effort of every subagent. Where it is known at spawn (set by the pilot, named in the Agent call, or `CLAUDE_CODE_SUBAGENT_EFFORT`), the agent's description ends in `· effort <level>`: it shows in the agents panel and in the agent's "finished" line. Where it is known only at the agent's first request (an agent running at the effort its own definition sets, a control run, a model the pilot does not manage, an agent started by another subagent), one dim line in the transcript says it, e.g. `effort-pilot: reviewer «Check the login flow» — effort high (its own)`. One line per agent run, not sent to the model.
