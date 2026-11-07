@@ -8,14 +8,19 @@ import type { Engine } from 'claude-code/testing'
 
 const usage = { input_tokens: 10, output_tokens: 5, cache_read_input_tokens: 0, cache_creation_input_tokens: 0 }
 const PLAN = '{"phase":"plan","hard":false,"continues":false,"asked":"none","build":"none","faulted":false,"why":"design the feature"}'
+const PLAN_MAX = '{"phase":"plan","hard":false,"continues":false,"asked":"max","build":"none","faulted":false,"why":"design the feature"}'
 const BUILD = '{"phase":"implement","hard":false,"continues":false,"asked":"none","build":"none","faulted":false,"why":"add the button"}'
 const APPROVED = 'User has approved your plan. You can now start coding.'
 
 type Answer = { deny: string } | { isError: true } | { approved: true }
 
-/** A session on a managed model: what the classifier answers, what each request carried, the lines the plugin added. */
+/**
+ * A session on a managed model: what the classifier answers, what each request carried, the lines the plugin added, the
+ * status lines shown and the turn records kept (in a file system in memory).
+ */
 function engine(on: On, reply: string, answer: Answer = { approved: true }) {
-  const seen = { sent: [] as unknown[], added: [] as string[] }
+  const seen = { sent: [] as unknown[], added: [] as string[], status: [] as string[], files: new Map<string, string>() }
+  const records = () => [...seen.files.values()].flatMap(t => t.split('\n').filter(Boolean)).map(l => JSON.parse(l) as Record<string, unknown>)
   on('command.register', () => ({ value: { command: 'effort-pilot' } }))
   on('session.model', () => ({ value: 'claude-opus-5-5' }))
   on('session.id', () => ({ value: 's1' }))
@@ -23,7 +28,19 @@ function engine(on: On, reply: string, answer: Answer = { approved: true }) {
   on('clock.now', () => ({ value: 0 }))
   on('model.complete', () => ({ value: { isAnswered: true, text: reply, usage } }))
   on('prompt.submit', (_$, e) => ({ text: e.text }))
-  on('ui.status', () => ({ value: undefined }))
+  on('ui.status', (_$, e) => {
+    seen.status.push(e.text ?? '')
+    return { value: undefined }
+  })
+  on('env.get', (_$, e) => ({ value: e.name === 'HOME' ? '/home/someone' : undefined }))
+  on('fs.exists', (_$, e) => ({ value: seen.files.has(e.path) }))
+  on('fs.read', (_$, e) => ({ value: seen.files.get(e.path) ?? '' }))
+  on('fs.write', (_$, e) => {
+    seen.files.set(e.path, e.text)
+    return { value: undefined }
+  })
+  on('fs.list', () => ({ value: [] }))
+  on('turn.complete', () => ({ text: 'done' }))
   on('ui.toast', () => ({ value: undefined }))
   on('ui.log', () => ({ value: undefined }))
   on('command.run', () => ({ text: '' }))
@@ -40,8 +57,10 @@ function engine(on: On, reply: string, answer: Answer = { approved: true }) {
     seen.sent.push(e.effort)
     return { turnId: e.turnId, index: e.index, answer: 'ok', toolUses: [], usage } as never
   })
-  return seen
+  return { ...seen, records }
 }
+
+const complete = ($: Engine) => $.turn.complete({ turnId: 't1', answer: 'done', durationMs: 5, isAborted: false, reason: 'answer' } as never)
 
 async function step($: Engine, index: number) {
   for await (const _ of $.turn.step({ turnId: 't1', index, model: 'claude-opus-5-5', effort: 'high', messageCount: index + 1 })) { /* drain */ }
@@ -138,4 +157,47 @@ test('plan mode entered by a subagent adds nothing', async ($, on) => {
   await building($)
   await enter($, 'agent-1')
   expect(seen.added).toEqual([])
+})
+
+// An effort asked for in the prompt that plan mode was on for is the person's, not the pilot's plan effort: the band says
+// so and the record is marked asked, so the report keeps it out of its comparisons.
+
+test('a planning effort asked for in a prompt typed in plan mode shows as asked and is recorded as asked', { options: { measure: true, controlShare: 0 } }, async ($, on) => {
+  const seen = engine(on, PLAN_MAX)
+  await planning($)
+  await complete($)
+  expect(seen.status.at(-1)).toBe('effort: max · you asked')
+  expect(seen.sent).toEqual(['max'])
+  expect(seen.records()).toEqual([expect.objectContaining({ phase: 'plan', chosen: 'max', sent: 'max', asked: true })])
+})
+
+test('a prompt typed in plan mode with no effort asked records the plan effort as chosen, not asked', { options: { measure: true, controlShare: 0 } }, async ($, on) => {
+  const seen = engine(on, PLAN)
+  await planning($)
+  await complete($)
+  expect(seen.status.at(-1)).toBe('effort: xhigh plan')
+  const [r] = seen.records()
+  expect(r).toEqual(expect.objectContaining({ phase: 'plan', chosen: 'xhigh', sent: 'xhigh' }))
+  expect(r?.asked).toBe(undefined)
+})
+
+test('a turn that plans at an asked effort and has its plan approved records the effort it planned at, as asked', { options: { measure: true, controlShare: 0 } }, async ($, on) => {
+  const seen = engine(on, PLAN_MAX)
+  await planning($)
+  await exit($)
+  await step($, 1)
+  await complete($)
+  expect(seen.sent).toEqual(['max', 'medium'])
+  expect(seen.records()).toEqual([expect.objectContaining({ phase: 'plan', chosen: 'max', sent: 'max', asked: true })])
+})
+
+test('a turn that plans and has its plan approved records the plan effort as chosen', { options: { measure: true, controlShare: 0 } }, async ($, on) => {
+  const seen = engine(on, PLAN)
+  await planning($)
+  await exit($)
+  await step($, 1)
+  await complete($)
+  const [r] = seen.records()
+  expect(r).toEqual(expect.objectContaining({ phase: 'plan', chosen: 'xhigh', sent: 'xhigh' }))
+  expect(r?.asked).toBe(undefined)
 })

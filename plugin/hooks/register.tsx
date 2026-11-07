@@ -127,8 +127,9 @@ async function setPlan($: EngineInterface, isPlan: boolean) {
     await update($, arm, () => 'auto' as const)
     // Through settle, so the status line, the trail and the band show it: the classic hook that reports plan mode
     // runs after prompt.submit has classified the prompt typed with it.
+    turnPlan = { effort, asked: !!lastPick?.asked }
     await settle($, {
-      phase: 'plan', hard: false, effort,
+      phase: 'plan', hard: false, effort, ...(lastPick?.asked ? { asked: lastPick.asked } : {}),
       why: `plan mode: ${lastPick?.asked ? `${effort}, as you asked` : effort} until you leave it${lastPick?.build ? ` · then ${lastPick.build}, as you asked` : ''}`,
     })
   }
@@ -188,6 +189,7 @@ async function asks($: EngineInterface, said: Route | null) {
   await update($, task, () => ({ ...t, ...(said.asked ? { asked: said.asked, effort: said.asked } : {}), ...(said.build ? { build: said.build } : {}) }))
   const r = await read($, route)
   const level = said.asked ?? r?.effort ?? config.plan
+  if (said.asked) turnPlan = { effort: said.asked, asked: true }
   await settle($, { phase: 'plan', hard: false, effort: level, asked: said.asked, why: `plan mode: ${level}${said.asked ? ', as you asked' : ''}${(said.build ?? t.build) ? ` · then ${said.build ?? t.build}, as you asked` : ''}` })
 }
 
@@ -460,6 +462,10 @@ let queued: string | null = null
 let waiting: string[] = []
 // The classification of the prompt that started this turn: what it asked for holds if it enters plan mode.
 let lastPick: Route | null = null
+// The effort plan mode aimed in the main loop's running turn, and whether the person asked for it: the turn's record
+// keeps it, though an approved plan moves the work on to the build effort before the turn ends. Null in a turn with no
+// plan mode.
+let turnPlan: { effort: Effort; asked: boolean } | null = null
 // The classifier's own pick for the message that started this turn (a notification's too), before the rules after it:
 // the turn's record keeps it beside the effort the rules sent.
 let turnPick: Route | null = null
@@ -780,6 +786,8 @@ export const register: Register = (on, options) => {
       await update($, acc, () => ({ ...EMPTY, at }))
       const plan = await read($, planMode)
       await update($, planned, () => plan)
+      const t = plan ? await read($, task) : null
+      turnPlan = plan ? { effort: t?.asked ?? config.plan, asked: !!t?.asked } : null
     } else if (!byAgent.has(e.agentId)) {
       const d = byBrief.get(e.text)
       if (d) {
@@ -871,7 +879,9 @@ export const register: Register = (on, options) => {
     mainTurn = null
     const faulted = lastPick?.faulted
     const own = turnPick
+    const aimed = turnPlan
     lastPick = null
+    turnPlan = null
     turnPick = null
     await update($, lastAnswer, () => result.text.slice(-1500))
     const r = await read($, route)
@@ -885,10 +895,10 @@ export const register: Register = (on, options) => {
       const plan = await read($, planned)
       await keep($, {
         t: await $.clock.now(), s: await $.session.id(), arm: await read($, arm),
-        phase: plan ? 'plan' : r.phase, hard: r.hard, chosen: plan ? config.plan : r.effort,
+        phase: plan ? 'plan' : r.phase, hard: r.hard, chosen: plan ? (aimed?.effort ?? config.plan) : r.effort,
         base: a.base, sent: a.sent, model: m, steps: a.steps, out: a.out, input: a.input,
         cacheRead: a.cacheRead, cacheWrite: a.cacheWrite, ms: Math.round((await $.clock.now()) - a.at), reason: e.reason, cls,
-        who: w, trace: a.trace, gen: Math.round(a.gen), ...(faulted ? { faulted: true } : {}), ...(r.asked ? { asked: true as const } : {}),
+        who: w, trace: a.trace, gen: Math.round(a.gen), ...(faulted ? { faulted: true } : {}), ...(r.asked || (plan && aimed?.asked) ? { asked: true as const } : {}),
         ...picked(own, r),
       }).catch(err => $.ui.log(`effort-pilot: could not keep the turn: ${String(err)}`))
     }

@@ -2,6 +2,11 @@
 
 All notable changes. Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions: [SemVer](https://semver.org/).
 
+## [1.5.3] — 2026-11-07
+
+- In plan mode, an effort you ask for in the prompt ("plan it on max") now shows as asked on the band and the status line, and the turn is recorded as asked, so the report keeps it out of its comparisons instead of counting it as the pilot's own plan turn.
+- A planned turn records the effort it actually planned at, also when the plan was approved and the build went on in the same turn. It used to record the plan setting whatever went out.
+
 ## [1.5.2] — 2026-11-06
 
 - A subagent's hand-back (the message that returns a background agent's result) was skipped: its turn ran at whatever effort the last one had, and the report counted it as one of your prompts. It is now read like any background result: during a plan or an analysis at least `high`, otherwise at its own effort.
