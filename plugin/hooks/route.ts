@@ -31,11 +31,13 @@ export function configFrom(options: Readonly<Record<string, unknown>>): Config {
 
 /**
  * An agent type the settings list (agents): steered by its brief like a built-in, even where its own definition sets an
- * effort. An entry names one type exactly (`plugin:agent`, case aside) or every agent of a plugin (`plugin:*`).
+ * effort. An entry names one type exactly, case aside: a plugin's agent (`plugin:agent`) or a person's or project's own
+ * (`reviewer`, from ~/.claude/agents or .claude/agents); `plugin:*` names every agent of a plugin, `*` every agent that
+ * is not a built-in.
  */
-export function listedAgent(type: string, config: Config = DEFAULTS) {
+export function listedAgent(type: string, config: Config = DEFAULTS, builtin = false) {
   const t = type.trim().toLowerCase()
-  return t !== '' && config.agents.some(x => (x.endsWith(':*') ? t.startsWith(x.slice(0, -1)) : t === x))
+  return t !== '' && config.agents.some(x => (x === '*' ? !builtin : x.endsWith(':*') ? t.startsWith(x.slice(0, -1)) : t === x))
 }
 
 /** The models whose effort the plugin sets: a name holding one of the configured words. Others are left to the person. */

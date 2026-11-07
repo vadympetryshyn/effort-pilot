@@ -53,13 +53,13 @@
     "agents": {
       "type": "string",
       "title": "Steered agents",
-      "description": "Comma-separated agent types (plugin:agent, or plugin:* for all of a plugin's) set by their brief like built-in subagents, even when their own definition sets an effort. An effort the Agent call names, or CLAUDE_CODE_SUBAGENT_EFFORT, still wins. Empty: built-ins only.",
+      "description": "Comma-separated names of your own or plugin agents to set by their brief like built-in subagents, over the effort their own definition sets: reviewer, lab:builder, lab:* (a plugin's every agent) or * (every agent that is not a built-in). An effort the Agent call names, or CLAUDE_CODE_SUBAGENT_EFFORT, still wins. Empty: built-ins only.",
       "default": ""
     },
     "sessionAgent": {
       "type": "string",
       "title": "Session agent",
-      "description": "For launchers: the agent type a headless session runs as (claude -p --agent <type>). Its first prompt is classified as that agent's brief (at least the build effort), its turns are recorded with the agent's type, and the session is steered without the headless setting. Empty: none.",
+      "description": "With headless on: the agent a claude -p --agent <type> session runs as, where Claude Code does not say it. Its first prompt is read as that agent's brief (at least the build effort), and its turns are recorded with the agent's type. Empty: Claude Code's word.",
       "default": ""
     },
     "headless": {

@@ -11,8 +11,8 @@ export type Mode = 'auto' | 'shadow' | 'off'
 /**
  * The settings the rule reads: the effort of each kind of work, and the models it applies to (lower-case words, any of
  * which in a model's name makes it managed). agents: the agent types steered by their brief besides the built-ins
- * (lower-case, `plugin:agent` or `plugin:*`); sessionAgent: the agent type a headless session runs as (`claude -p
- * --agent <type>`), its first input that agent's brief; empty: none.
+ * (lower-case: `plugin:agent`, `plugin:*`, a bare name, or `*`); sessionAgent: the agent type a headless session runs as
+ * (`claude -p --agent <type>`) where the engine does not say it; empty: the engine's word.
  */
 export type Config = { plan: Effort; analyze: Effort; build: Effort; hardBuild: Effort; talk: Effort; models: readonly string[]; agents: readonly string[]; sessionAgent: string }
 
@@ -78,11 +78,12 @@ export type TurnRecord = {
   /** The agent's type: the subagent's for who 'agent'; on every turn of a headless session run as an agent, that agent's. */
   agent?: string
   /**
-   * The setting that put this agent's run under the pilot, set only there: `agents` (a listed subagent, steered by its
-   * brief over its own effort) or `sessionAgent` (a turn of a headless session run as the agent: its brief is who 'agent',
-   * a later notification or message who 'notification' or 'person'). The report gives these runs a group per agent type.
+   * How an agent's run came under the pilot, set only there: `listed` (a subagent whose type the agents setting lists,
+   * steered by its brief over its own effort) or `session` (a turn of a headless session run as the agent, `claude -p
+   * --agent <type>`: its first turn, the brief, is who 'agent'; a later notification or message who 'notification' or
+   * 'person'). The report gives these runs groups of their own per agent type.
    */
-  via?: 'agents' | 'sessionAgent'
+  via?: 'listed' | 'session'
   /** Each request of the turn: the effort it went at and its output tokens (at most 60). */
   trace?: [Effort | null, number][]
   /** Milliseconds the model spent answering the turn's requests: its speed, without tools and subagents. */

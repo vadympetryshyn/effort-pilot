@@ -182,8 +182,13 @@ async function begin($: EngineInterface, text: string, kind: string, handBack = 
   await publish($)
 }
 
-/** The agent a headless session runs as (the sessionAgent setting, `claude -p --agent <type>`); empty where none. */
-const sessionAgent = () => (config.sessionAgent && interactive === false ? config.sessionAgent : '')
+// The agent the main loop runs as in a session started with --agent, as the engine's classic SessionStart says it.
+let mainAgent = ''
+/**
+ * The agent a headless session runs as (`claude -p --agent <type>`): the sessionAgent setting where a launcher sets it,
+ * else the engine's word; empty in an interactive session, where a person talks to the agent.
+ */
+const sessionAgent = () => (interactive === false ? config.sessionAgent || mainAgent : '')
 /**
  * In a headless session run as an agent, its first input (nothing routed yet, nothing said before it) is that agent's
  * brief, not a person's message: classified as a subagent's brief and held at least at the build effort, as one is.
@@ -546,7 +551,7 @@ async function keepAgent($: EngineInterface, d: Decision, reason: string) {
     t: await $.clock.now(), s: await $.session.id(), arm: d.arm, phase: r.phase, hard: r.hard, chosen: r.effort,
     base: d.acc.base, sent: d.acc.sent, model: d.model, steps: d.acc.steps, out: d.acc.out, input: d.acc.input,
     cacheRead: d.acc.cacheRead, cacheWrite: d.acc.cacheWrite, ms: Math.round((await $.clock.now()) - d.acc.at), reason,
-    who: 'agent', agent: d.type, ...(d.listed ? { via: 'agents' as const } : {}), trace: d.acc.trace, gen: Math.round(d.acc.gen), ...(r.asked ? { asked: true as const } : {}),
+    who: 'agent', agent: d.type, ...(d.listed ? { via: 'listed' as const } : {}), trace: d.acc.trace, gen: Math.round(d.acc.gen), ...(r.asked ? { asked: true as const } : {}),
     ...picked(d.pick, r),
   })
 }
@@ -581,8 +586,7 @@ export const register: Register = (on, options) => {
   measuring = options.measure === true
   const pct = typeof options.controlShare === 'number' ? options.controlShare : 30
   controlShare = Math.min(100, Math.max(0, pct)) / 100
-  // A session run as an agent is a headless one by its setting's own meaning: steered without the headless setting too.
-  headless = options.headless === true || config.sessionAgent !== ''
+  headless = options.headless === true
   on('session.start', async ($, e, next) => {
     interactive = e.isInteractive
     await credential($)
@@ -594,6 +598,12 @@ export const register: Register = (on, options) => {
     await update($, model, () => name)
     return next(e)
   })
+
+  // The main loop's agent in a session started with --agent: the classic event names it on the main thread (no agent_id).
+  on('classic.SessionStart', async ($, e, next) => {
+    if (e.agent_id === undefined) mainAgent = e.agent_type ?? ''
+    return next(e)
+  }).catch(($, e, next) => next(e))
 
   on('session.end', async ($, e, next) => {
     // A conversation cleared before anything ran in it still holds the choice carried into it.
@@ -772,7 +782,7 @@ export const register: Register = (on, options) => {
     if (aside(e.model ?? e.parentModel) !== null) return next(e)
     const resumed = e.resume ? byAgent.get(e.resume.agentId) : undefined
     const builtin = e.provider.plugin === 'engine'
-    const listed = listedAgent(e.subagentType, config)
+    const listed = listedAgent(e.subagentType, config, builtin)
     // An effort the Agent call names, or the one the person set for every subagent: theirs, nothing to classify.
     const named = explicit.has(e.tool_use_id) || !!(await $.env.get('CLAUDE_CODE_SUBAGENT_EFFORT').catch(() => undefined))?.trim()
     const d: Decision = {
@@ -932,7 +942,7 @@ export const register: Register = (on, options) => {
         phase: plan ? 'plan' : r.phase, hard: r.hard, chosen: plan ? (aimed?.effort ?? config.plan) : r.effort,
         base: a.base, sent: a.sent, model: m, steps: a.steps, out: a.out, input: a.input,
         cacheRead: a.cacheRead, cacheWrite: a.cacheWrite, ms: Math.round((await $.clock.now()) - a.at), reason: e.reason, cls,
-        who: w, ...(sessionAgent() ? { agent: sessionAgent(), via: 'sessionAgent' as const } : {}), trace: a.trace, gen: Math.round(a.gen), ...(faulted ? { faulted: true } : {}), ...(r.asked || (plan && aimed?.asked) ? { asked: true as const } : {}),
+        who: w, ...(sessionAgent() ? { agent: sessionAgent(), via: 'session' as const } : {}), trace: a.trace, gen: Math.round(a.gen), ...(faulted ? { faulted: true } : {}), ...(r.asked || (plan && aimed?.asked) ? { asked: true as const } : {}),
         ...picked(own, r),
       }).catch(err => $.ui.log(`effort-pilot: could not keep the turn: ${String(err)}`))
     }
