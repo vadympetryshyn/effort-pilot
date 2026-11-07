@@ -4,7 +4,7 @@ export const EFFORTS: readonly Effort[] = ['low', 'medium', 'high', 'xhigh', 'ma
 export const PHASES: readonly Phase[] = ['plan', 'analyze', 'implement', 'fix', 'trivial', 'chat']
 
 /** The settings' defaults: the effort table and the models it applies to. */
-export const DEFAULTS: Config = { plan: 'xhigh', analyze: 'high', build: 'medium', hardBuild: 'high', talk: 'low', models: ['opus', 'fable'] }
+export const DEFAULTS: Config = { plan: 'xhigh', analyze: 'high', build: 'medium', hardBuild: 'high', talk: 'low', models: ['opus', 'fable'], agents: [], sessionAgent: '' }
 
 /**
  * The settings as the plugin's options hold them (userConfig): a missing or unknown value falls back to its default,
@@ -15,6 +15,8 @@ export function configFrom(options: Readonly<Record<string, unknown>>): Config {
   const listed = typeof options.managedModels === 'string'
     ? options.managedModels.split(',').map(x => x.trim().toLowerCase()).filter(Boolean)
     : DEFAULTS.models
+  const agents = typeof options.agents === 'string' ? options.agents.split(',').map(x => x.trim().toLowerCase()).filter(Boolean) : DEFAULTS.agents
+  const sessionAgent = typeof options.sessionAgent === 'string' ? options.sessionAgent.trim() : DEFAULTS.sessionAgent
   return {
     plan: effort('planEffort', DEFAULTS.plan),
     analyze: effort('analyzeEffort', DEFAULTS.analyze),
@@ -22,7 +24,18 @@ export function configFrom(options: Readonly<Record<string, unknown>>): Config {
     hardBuild: effort('hardBuildEffort', DEFAULTS.hardBuild),
     talk: effort('talkEffort', DEFAULTS.talk),
     models: listed,
+    agents,
+    sessionAgent,
   }
+}
+
+/**
+ * An agent type the settings list (agents): steered by its brief like a built-in, even where its own definition sets an
+ * effort. An entry names one type exactly (`plugin:agent`, case aside) or every agent of a plugin (`plugin:*`).
+ */
+export function listedAgent(type: string, config: Config = DEFAULTS) {
+  const t = type.trim().toLowerCase()
+  return t !== '' && config.agents.some(x => (x.endsWith(':*') ? t.startsWith(x.slice(0, -1)) : t === x))
 }
 
 /** The models whose effort the plugin sets: a name holding one of the configured words. Others are left to the person. */
@@ -513,7 +526,8 @@ const points = (x: number) => `${x >= 0 ? '−' : '+'}${Math.abs(Math.round(x * 
 export const fmt = { usd, sec, percent, points, kTok }
 
 export const GROUPS = [['person', 'your prompts'], ['notification', 'notifications'], ['agent', 'subagents']] as const
-export const groupTitle = (who: Who) => GROUPS.find(([w]) => w === who)![1]
+/** A group's title: a listed agent's by its type, else by whose turns it holds. */
+export const groupTitle = (who: Who, agent?: string) => (agent ? `agent ${agent}` : GROUPS.find(([w]) => w === who)![1])
 /** Turns each arm needs before a phase is compared. */
 export const ENOUGH = 5
 
@@ -555,14 +569,20 @@ export function reportData(all: readonly TurnRecord[]): ReportData {
   const arm = (xs: TurnRecord[]): ArmRead | null => xs.length
     ? { turns: xs.length, cost: mean(xs.map(turnCost)), time: median(xs.map(speed)), short: mean(xs.map(x => (fell.get(x) ? 1 : 0))) }
     : null
-  for (const [who] of GROUPS) for (const phase of PHASES) {
-    const turns = records.filter(r => (r.who ?? 'person') === who && r.phase === phase)
+  // A listed agent's runs (via) are a group of their own per agent type, apart from the groups by who.
+  const listed = [...new Set(records.filter(r => r.via && r.agent).map(r => r.agent!))].sort()
+  const groups = [
+    ...GROUPS.map(([who]) => ({ who: who as Who, agent: undefined as string | undefined, has: (r: TurnRecord) => !(r.via && r.agent) && (r.who ?? 'person') === who })),
+    ...listed.map(agent => ({ who: 'agent' as Who, agent, has: (r: TurnRecord) => !!r.via && r.agent === agent })),
+  ]
+  for (const { who, agent, has } of groups) for (const phase of PHASES) {
+    const turns = records.filter(r => has(r) && r.phase === phase)
     if (!turns.length) continue
     // A pilot turn counts where its own pick went (an effort held over from before the turn is not its pick).
     const a = turns.filter(r => r.arm === 'auto' && !r.asked && r.base === 'high' && r.sent === r.chosen && r.sent !== 'high')
     const c = turns.filter(r => r.arm === 'control' && r.base === 'high' && r.sent === 'high' && r.chosen !== 'high')
     const read: PhaseRead = {
-      who, phase,
+      who, ...(agent ? { agent } : {}), phase,
       efforts: [...new Set(a.map(x => x.sent).filter((x): x is Effort => Boolean(x)))],
       pilot: arm(a), control: arm(c),
       same: turns.length - a.length - c.length,
@@ -625,7 +645,7 @@ export function report(all: readonly TurnRecord[]) {
   const judged = (name: string, m: MeasureRead, show: (x: number) => string) =>
     `${name} ${show(m.share)} (90% range ${show(m.low)} … ${show(m.high)}) → ${VERDICT[m.verdict]}`
   const lines = d.phases.map(p => {
-    const title = groupTitle(p.who)
+    const title = groupTitle(p.who, p.agent)
     if (!p.pilot && !p.control) return `${title} · ${p.phase}: ${p.same} turns, none comparable (${why})`
     const head = `${title} · ${p.phase} (pilot ${p.efforts.join('/') || '—'} vs high)`
     const verdict = p.measures

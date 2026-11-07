@@ -70,7 +70,7 @@ A band above the prompt shows the effort now, how it got there and why. Follow-u
 
 - 🗣️ **Just say it.** "do this on max", "medium is enough", "plan it, then build on high" — in any language, typed or dictated. `ultrathink` runs that work at `xhigh`, as Claude Code does (with `CLAUDE_CODE_DISABLE_ULTRATHINK` set, the word asks for nothing). "back to auto" hands it back.
 - 🧭 **Plan mode** runs at `xhigh`; the approved plan is built at `medium`.
-- 🤖 **Subagents** get their own effort, on the session's model or another one (never below the build effort, `medium` by default). An effort the Agent call names, or `CLAUDE_CODE_SUBAGENT_EFFORT`, is left alone.
+- 🤖 **Subagents** get their own effort, on the session's model or another one (never below the build effort, `medium` by default). An effort the Agent call names, or `CLAUDE_CODE_SUBAGENT_EFFORT`, is left alone. Agents from other plugins keep their own effort unless you list them in `agents`.
 - 🔔 **Background results** and messages from other sessions are read too: one the agent only relays or hands to the next agent goes at the build effort (at `high` while a plan or an analysis is under way); one that reports a failure, a background command's output, or a step in hard work keeps the effort of the work it serves.
 - ✋ **You stay in charge.** `/effort <level>` pins it; `/effort-pilot on` resumes.
 - 🔒 **Private.** Nothing leaves your machine but the Haiku call. Your effort setting is changed per message; the model is never changed, and the prompt cache stays intact (where a switch would rewrite it, Effort Pilot stands aside).
@@ -99,12 +99,14 @@ All in `/config` → **effort-pilot**.
 | `talkEffort` | `low` | questions, chat, tiny edits |
 | `managedModels` | `opus,fable` | models whose effort it sets (never where effort is one setting per request: see above) |
 | `headless` | off | also steer `claude -p` and SDK runs |
+| `agents` | empty | agent types from other plugins to steer by their brief like built-ins, over the effort their own definition sets: `plugin:agent`, or `plugin:*` for all of a plugin's |
+| `sessionAgent` | empty | for launchers: the agent type a headless session runs as (`claude -p --agent <type>`); its first prompt is read as that agent's brief (never below the build effort), and the session is steered without `headless` |
 | `measure` | off | run the comparison below |
 | `controlShare` | `30` | % of turns left at `high` while measuring |
 
 ## Measure it yourself
 
-Turn on **measure**. A share of turns where Effort Pilot would pick something other than `high` is left at `high` (control turns). `/effort-pilot report` then compares, per phase, **cost per turn**, **model time** and **turns that fell short** (aborted, or the message you send right after it says it was wrong), each with a 90% range, and nets out what the classifier itself cost. Records (turn statistics, no prompt text) live in the plugin's data folder, `~/.claude/plugins/data/effort-pilot-effort-pilot/turns/`, one file a day, and are kept for 90 days. `/effort-pilot reset` deletes them; uninstalling the plugin removes them too (unless you uninstall with `--keep-data`).
+Turn on **measure**. A share of turns where Effort Pilot would pick something other than `high` is left at `high` (control turns). `/effort-pilot report` then compares, per phase, **cost per turn**, **model time** and **turns that fell short** (aborted, or the message you send right after it says it was wrong), each with a 90% range, and nets out what the classifier itself cost. Each agent listed in `agents`, and each `sessionAgent` session, gets groups of its own per agent type: a record of its run carries `agent` (the type) and `via` (`agents` for a listed subagent, `sessionAgent` for a turn of a headless session run as the agent; its first turn, the brief, has `who: "agent"`). Records (turn statistics, no prompt text) live in the plugin's data folder, `~/.claude/plugins/data/effort-pilot-effort-pilot/turns/`, one file a day, and are kept for 90 days. `/effort-pilot reset` deletes them; uninstalling the plugin removes them too (unless you uninstall with `--keep-data`).
 
 ## Contributing
 

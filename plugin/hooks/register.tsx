@@ -3,7 +3,7 @@ import type { EngineInterface, Register } from 'claude-code'
 
 import type { AgentRun, Config, Effort, Mode, Route, Spend, Tally, Task, TurnRecord, Who } from '../types'
 import {
-  afterPlan, asideText, briefPrompt, cacheRewritten, commandText, unasked, carry, configFrom, DEFAULTS, EFFORTS, flagOn, forAgent, forNotice, managed as managedBy,
+  afterPlan, asideText, briefPrompt, cacheRewritten, commandText, unasked, carry, configFrom, DEFAULTS, EFFORTS, flagOn, forAgent, forNotice, listedAgent, managed as managedBy,
   midTurn, noticeOf, parse, parseRecords, prompt, promptOf, recentOf, report, reportData, sameModel, seedPrompt, SHORT, SYSTEM, wholeRequest,
 } from './route'
 import type { Aside, Step } from './route'
@@ -163,6 +163,7 @@ async function begin($: EngineInterface, text: string, kind: string, handBack = 
     await publish($)
     return
   }
+  if (!notice && (await briefed($, text))) return
   if (!notice) await seed($, text).catch(err => $.ui.log(`effort-pilot: could not read the session so far: ${String(err)}`))
   const work = await read($, task)
   const pick = await classify($, text, true, notice).catch(() => null)
@@ -179,6 +180,30 @@ async function begin($: EngineInterface, text: string, kind: string, handBack = 
   if (carried) await update($, task, () => carried.task)
   if (next) await settle($, next)
   await publish($)
+}
+
+/** The agent a headless session runs as (the sessionAgent setting, `claude -p --agent <type>`); empty where none. */
+const sessionAgent = () => (config.sessionAgent && interactive === false ? config.sessionAgent : '')
+/**
+ * In a headless session run as an agent, its first input (nothing routed yet, nothing said before it) is that agent's
+ * brief, not a person's message: classified as a subagent's brief and held at least at the build effort, as one is.
+ * Later inputs (a notification, a resumed session's message) are routed as anyone's. True when it routed the input.
+ */
+async function briefed($: EngineInterface, text: string) {
+  const type = sessionAgent()
+  if (!type || (await read($, task)) !== null || (await read($, route)) !== null) return false
+  if (recentOf(await $.session.messages().catch(() => []), text)) return false
+  const { route: pick } = await ask($, briefPrompt(type, '', text, null, await noUltrathink($)), true).catch(() => ({ route: null }))
+  turnPick = pick
+  lastPick = null
+  if (!pick) return true
+  const next = forAgent(pick, config)
+  await update($, who, () => 'agent' as Who)
+  await update($, arm, () => (!next.asked && differs(next.effort) && Math.random() < share() ? 'control' : 'auto'))
+  await update($, task, () => ({ phase: pick.phase, hard: pick.hard, effort: next.effort, text, ...(pick.asked ? { asked: pick.asked } : {}), ...(pick.build ? { build: pick.build } : {}) }))
+  await settle($, next)
+  await publish($)
+  return true
 }
 
 /** In plan mode: an effort the person asks for the planning takes effect, one for the build waits for the plan. */
@@ -441,6 +466,9 @@ const describe = (r: Route) => `${SHORT[r.effort]} ${r.phase}${r.hard ? ' (hard)
 // request holds for its run. Whoever already decided keeps the decision: an effort the Agent call names, an agent
 // that is not a built-in (its definition is its author's), an effort that is not the session's own (declared).
 // Only built-in agents that inherited the session's effort, on a managed model, are set: by their brief, not their type.
+// An agent type the person lists (the agents setting) is set by its brief like a built-in, over an effort its own
+// definition declares: listing it is their choice over its author's. The Agent call's effort and
+// CLAUDE_CODE_SUBAGENT_EFFORT still win.
 type Decision = {
   route: Route | null
   /** The classifier's own pick for the brief, before the rules after it. */
@@ -451,6 +479,8 @@ type Decision = {
   type: string
   description: string
   checked: boolean
+  /** Its type is in the agents setting: steered by its brief over its own effort, and reported in a group of its own. */
+  listed: boolean
   acc: typeof EMPTY
   model: string
 }
@@ -516,7 +546,7 @@ async function keepAgent($: EngineInterface, d: Decision, reason: string) {
     t: await $.clock.now(), s: await $.session.id(), arm: d.arm, phase: r.phase, hard: r.hard, chosen: r.effort,
     base: d.acc.base, sent: d.acc.sent, model: d.model, steps: d.acc.steps, out: d.acc.out, input: d.acc.input,
     cacheRead: d.acc.cacheRead, cacheWrite: d.acc.cacheWrite, ms: Math.round((await $.clock.now()) - d.acc.at), reason,
-    who: 'agent', agent: d.type, trace: d.acc.trace, gen: Math.round(d.acc.gen), ...(r.asked ? { asked: true as const } : {}),
+    who: 'agent', agent: d.type, ...(d.listed ? { via: 'agents' as const } : {}), trace: d.acc.trace, gen: Math.round(d.acc.gen), ...(r.asked ? { asked: true as const } : {}),
     ...picked(d.pick, r),
   })
 }
@@ -551,7 +581,8 @@ export const register: Register = (on, options) => {
   measuring = options.measure === true
   const pct = typeof options.controlShare === 'number' ? options.controlShare : 30
   controlShare = Math.min(100, Math.max(0, pct)) / 100
-  headless = options.headless === true
+  // A session run as an agent is a headless one by its setting's own meaning: steered without the headless setting too.
+  headless = options.headless === true || config.sessionAgent !== ''
   on('session.start', async ($, e, next) => {
     interactive = e.isInteractive
     await credential($)
@@ -741,21 +772,24 @@ export const register: Register = (on, options) => {
     if (aside(e.model ?? e.parentModel) !== null) return next(e)
     const resumed = e.resume ? byAgent.get(e.resume.agentId) : undefined
     const builtin = e.provider.plugin === 'engine'
+    const listed = listedAgent(e.subagentType, config)
     // An effort the Agent call names, or the one the person set for every subagent: theirs, nothing to classify.
     const named = explicit.has(e.tool_use_id) || !!(await $.env.get('CLAUDE_CODE_SUBAGENT_EFFORT').catch(() => undefined))?.trim()
     const d: Decision = {
       route: null, pick: null, task: resumed?.task ?? null, arm: 'auto', source: 'own', type: e.subagentType,
-      description: e.description, checked: false, acc: { ...EMPTY, at: await $.clock.now() }, model: '',
+      description: e.description, checked: false, listed, acc: { ...EMPTY, at: await $.clock.now() }, model: '',
     }
     let description = e.description
-    if (builtin && !named && e.prompt.trim()) {
+    if ((builtin || listed) && !named && e.prompt.trim()) {
       const { route: pick } = await ask($, briefPrompt(e.subagentType, e.description, e.prompt, d.task, await noUltrathink($)), true).catch(() => ({ route: null }))
       if (pick) {
         const carried = d.task ? carry(d.task, pick, e.prompt, config) : { route: pick, task: { phase: pick.phase, hard: pick.hard, effort: pick.effort, text: e.prompt } }
         d.route = forAgent(carried.route, config)
         d.pick = pick
         d.task = carried.task
-        d.arm = differs(d.route.effort) && Math.random() < share() ? 'control' : 'auto'
+        // A listed agent's own effort is its definition's (high, as such agents declare), whatever the session's: the
+        // control run goes at it.
+        d.arm = (listed ? !d.route.asked && d.route.effort !== 'high' : differs(d.route.effort)) && Math.random() < share() ? 'control' : 'auto'
         d.source = d.arm === 'auto' ? 'auto' : 'control'
         // Shown on the agent's line in the transcript when it will hold: on a model the pilot steers.
         if (d.source === 'auto' && managed(e.model ?? e.parentModel)) description = `${e.description} · effort ${SHORT[d.route.effort]}`
@@ -809,10 +843,10 @@ export const register: Register = (on, options) => {
         d.model = e.model
         // A model the pilot leaves alone, a number, or on the session's model an effort that is not the one the session
         // hands down: declared. On another model the effort is that model's saved one or its default, which no one
-        // chose for this agent: steered by its brief.
+        // chose for this agent: steered by its brief. A listed agent's declared effort is not its decision.
         if (!managed(e.model)) d.source = 'skip'
         else if (typeof e.effort === 'number') d.source = 'own'
-        else if (sessionEffort !== undefined && sameModel(e.model, sessionModel) && e.effort !== sessionEffort) d.source = 'own'
+        else if (!d.listed && sessionEffort !== undefined && sameModel(e.model, sessionModel) && e.effort !== sessionEffort) d.source = 'own'
         await showAgent($, e.agentId, d, 'running')
       }
       const effort = d.source === 'auto' ? d.route?.effort : undefined
@@ -898,7 +932,7 @@ export const register: Register = (on, options) => {
         phase: plan ? 'plan' : r.phase, hard: r.hard, chosen: plan ? (aimed?.effort ?? config.plan) : r.effort,
         base: a.base, sent: a.sent, model: m, steps: a.steps, out: a.out, input: a.input,
         cacheRead: a.cacheRead, cacheWrite: a.cacheWrite, ms: Math.round((await $.clock.now()) - a.at), reason: e.reason, cls,
-        who: w, trace: a.trace, gen: Math.round(a.gen), ...(faulted ? { faulted: true } : {}), ...(r.asked || (plan && aimed?.asked) ? { asked: true as const } : {}),
+        who: w, ...(sessionAgent() ? { agent: sessionAgent(), via: 'sessionAgent' as const } : {}), trace: a.trace, gen: Math.round(a.gen), ...(faulted ? { faulted: true } : {}), ...(r.asked || (plan && aimed?.asked) ? { asked: true as const } : {}),
         ...picked(own, r),
       }).catch(err => $.ui.log(`effort-pilot: could not keep the turn: ${String(err)}`))
     }

@@ -10,9 +10,11 @@ export type Mode = 'auto' | 'shadow' | 'off'
 
 /**
  * The settings the rule reads: the effort of each kind of work, and the models it applies to (lower-case words, any of
- * which in a model's name makes it managed).
+ * which in a model's name makes it managed). agents: the agent types steered by their brief besides the built-ins
+ * (lower-case, `plugin:agent` or `plugin:*`); sessionAgent: the agent type a headless session runs as (`claude -p
+ * --agent <type>`), its first input that agent's brief; empty: none.
  */
-export type Config = { plan: Effort; analyze: Effort; build: Effort; hardBuild: Effort; talk: Effort; models: readonly string[] }
+export type Config = { plan: Effort; analyze: Effort; build: Effort; hardBuild: Effort; talk: Effort; models: readonly string[]; agents: readonly string[]; sessionAgent: string }
 
 export type Route = {
   phase: Phase
@@ -68,10 +70,19 @@ export type TurnRecord = {
   reason: string
   /** The classifier's cost for this turn; absent on some records. */
   cls?: Spend
-  /** Whose turn: your prompt, a notification (a background task finished, a scheduled prompt), or a subagent's run. Absent: person. */
+  /**
+   * Whose turn: your prompt, a notification (a background task finished, a scheduled prompt), or an agent's run on its
+   * brief (a subagent's, or the first turn of a headless session run as an agent). Absent: person.
+   */
   who?: Who
-  /** The subagent's type, for who 'agent'. */
+  /** The agent's type: the subagent's for who 'agent'; on every turn of a headless session run as an agent, that agent's. */
   agent?: string
+  /**
+   * The setting that put this agent's run under the pilot, set only there: `agents` (a listed subagent, steered by its
+   * brief over its own effort) or `sessionAgent` (a turn of a headless session run as the agent: its brief is who 'agent',
+   * a later notification or message who 'notification' or 'person'). The report gives these runs a group per agent type.
+   */
+  via?: 'agents' | 'sessionAgent'
   /** Each request of the turn: the effort it went at and its output tokens (at most 60). */
   trace?: [Effort | null, number][]
   /** Milliseconds the model spent answering the turn's requests: its speed, without tools and subagents. */
@@ -92,7 +103,8 @@ export type Who = 'person' | 'notification' | 'agent'
 
 /**
  * A subagent as the pilot sees it. source: auto (it set the effort), control (classified, left inherited),
- * own (its definition or the call set it, or it is not a built-in agent), skip (a model or setting the pilot leaves alone).
+ * own (its definition or the call set it, or it is neither a built-in nor a listed agent), skip (a model or setting the
+ * pilot leaves alone).
  */
 export type AgentRun = {
   id: string
@@ -120,6 +132,8 @@ export type MeasureRead = { share: number; low: number; high: number; verdict: '
 /** One group's phase in the report: what was compared, what was not, and the verdicts once both arms have 5+ turns. */
 export type PhaseRead = {
   who: Who
+  /** A listed agent's group (records with via): its type; absent for the groups by who. */
+  agent?: string
   phase: Phase
   /** The efforts the pilot's compared turns went at, in the order first seen. */
   efforts: Effort[]

@@ -50,6 +50,18 @@
       "description": "Comma-separated words; a model whose name holds one of them (case-insensitive) gets its effort set. Others are left alone.",
       "default": "opus,fable"
     },
+    "agents": {
+      "type": "string",
+      "title": "Steered agents",
+      "description": "Comma-separated agent types (plugin:agent, or plugin:* for all of a plugin's) set by their brief like built-in subagents, even when their own definition sets an effort. An effort the Agent call names, or CLAUDE_CODE_SUBAGENT_EFFORT, still wins. Empty: built-ins only.",
+      "default": ""
+    },
+    "sessionAgent": {
+      "type": "string",
+      "title": "Session agent",
+      "description": "For launchers: the agent type a headless session runs as (claude -p --agent <type>). Its first prompt is classified as that agent's brief (at least the build effort), its turns are recorded with the agent's type, and the session is steered without the headless setting. Empty: none.",
+      "default": ""
+    },
     "headless": {
       "type": "boolean",
       "title": "Steer headless runs",
