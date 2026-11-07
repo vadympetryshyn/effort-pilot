@@ -206,6 +206,16 @@ describe('the agents setting', () => {
     expect(seen.sent).toEqual(['high', 'high', 'high'])
   })
 
+  test('a listed agent whose brief got no classifier answer is not read from its wake-up message when resumed: it keeps its own effort', { options: { agents: '*' } }, async ($, on) => {
+    const seen = await session($, on, ['no answer'])
+    await spawn($, 'lab:builder')
+    expect(seen.prompts.length).toBe(1)
+    expect(seen.sent).toEqual(['high'])
+    await spawn($, 'lab:builder', { text: 'A background task finished: the tests passed.', turn: 's2', steps: 2, spawn: { resume: { agentId: 'a1' } } })
+    expect(seen.prompts.length).toBe(1)
+    expect(seen.sent).toEqual(['high', 'high', 'high'])
+  })
+
   test('a listed agent spawned in plan mode is set by its brief, as a built-in is', { options: { agents: '*' } }, async ($, on) => {
     const seen = await session($, on, [pick('implement')])
     await $.classic.UserPromptSubmit({ prompt: 'Plan a CSV export.', permission_mode: 'plan' } as never)

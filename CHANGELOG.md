@@ -4,7 +4,7 @@ All notable changes. Format: [Keep a Changelog](https://keepachangelog.com/en/1.
 
 ## [1.7.1] — 2026-11-07
 
-- A steered subagent woken again after `/reload-plugins` (or after the plugin was turned on mid-run) keeps the effort it runs at. The pilot had forgotten its brief, so it read the message that woke the agent, such as a background task's notification, as the whole brief and could lower the rest of a hard build. It now leaves such a run at its own effort; its transcript line says `left as is: resumed before the pilot saw its brief`.
+- A steered subagent woken again after `/reload-plugins` (or after the plugin was turned on mid-run) keeps the effort it runs at. The pilot had forgotten its brief, so it read the message that woke the agent, such as a background task's notification, as the whole brief and could lower the rest of a hard build. It now leaves such a run at its own effort; its transcript line says `left as is: resumed before the pilot saw its brief`. The same holds for an agent whose brief got no classifier answer at its first spawn: when it is woken again, it stays at its own effort.
 
 ## [1.7.0] — 2026-11-07
 

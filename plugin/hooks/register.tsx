@@ -838,8 +838,9 @@ export const register: Register = (on, options) => {
       : m !== 'auto' ? 'shadow' : (await read($, pin)) !== null ? 'pin'
       // Where a switch would rewrite the prompt cache, the subagent keeps the session's effort: nothing to classify.
       : aside(e.model ?? e.parentModel) !== null ? 'aside'
-      // A resumed run with no brief seen (the plugin reloaded since its spawn), on this wake-up or an earlier one: the
-      // message that wakes it is no brief, so it keeps the effort it carries.
+      // A resumed run with no brief seen (the plugin reloaded since its spawn), or whose brief was not classified, on
+      // this wake-up or an earlier one: the message that wakes it is no brief, so it keeps the effort it carries.
+      : e.resume && resumed?.held === 'unread' ? 'unread'
       : e.resume && (!resumed || resumed.held === 'resumed') ? 'resumed'
       : null
     const d: Decision = {
