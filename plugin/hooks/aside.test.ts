@@ -102,15 +102,15 @@ test('a subagent on a whole-request model is not classified', async ($, on) => {
 })
 
 test('a switch seen to rewrite the cache leaves the person\'s effort from the next request, with one toast', async ($, on) => {
-  // Turn 1 at medium writes the cache; turn 2 switches to low and reads almost nothing of it.
-  const seen = engine(on, 'claude-opus-6', true, [usage(40_000, 10_000), usage(1_000, 50_000), usage(50_000), usage(50_000)])
+  // Turn 2 switches to low and reads the cache; turn 3 switches back to medium and reads almost nothing of it.
+  const seen = engine(on, 'claude-opus-6', true, [usage(40_000, 10_000), usage(49_000, 2_000), usage(1_000, 50_000), usage(50_000)])
   await start($)
   await turn($, 'claude-opus-6', 'high', 2)
   await turn($, 'claude-opus-6', 'high', 4)
   await turn($, 'claude-opus-6', 'high', 6)
   await turn($, 'claude-opus-6', 'high', 8)
-  expect(seen.sent).toEqual(['medium', 'low', 'high', 'high'])
-  expect(seen.calls).toBe(2)
+  expect(seen.sent).toEqual(['medium', 'low', 'medium', 'high'])
+  expect(seen.calls).toBe(3)
   expect(seen.toasts.filter(t => t.includes('rewrite the prompt cache'))).toHaveLength(1)
   expect(await band($)).toContain('a switch was seen to rewrite the prompt cache')
 })
@@ -123,4 +123,16 @@ test('a switch that reads the cache marks nothing', async ($, on) => {
   await turn($, 'claude-opus-6', 'high', 6)
   expect(seen.sent).toEqual(['medium', 'low', 'medium'])
   expect(seen.calls).toBe(3)
+})
+
+test('the loss from a session\'s first request to its second is no rewrite: the pilot keeps steering', async ($, on) => {
+  // As measured on a fresh headless session: Claude Code sends part of the first turn again on the second, so the second
+  // request reads back only the system and tools prefix, a switch or none.
+  const seen = engine(on, 'claude-opus-6', true, [usage(13_235, 7_689), usage(13_759, 12_252), usage(26_000, 600)])
+  await start($)
+  await turn($, 'claude-opus-6', 'high', 1)
+  await turn($, 'claude-opus-6', 'high', 3)
+  await turn($, 'claude-opus-6', 'high', 5)
+  expect(seen.sent).toEqual(['medium', 'low', 'medium'])
+  expect(seen.toasts.filter(t => t.includes('rewrite the prompt cache'))).toHaveLength(0)
 })

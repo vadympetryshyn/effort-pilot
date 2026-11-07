@@ -424,6 +424,16 @@ describe('cacheRewritten', () => {
     expect(cacheRewritten(prev, cur({ cacheRead: 0, at: prev.at + 5 * 60_000 }))).toBe(false)
     expect(cacheRewritten({ ...prev, prompt: 3_000, cacheRead: 2_000 }, cur({ cacheRead: 0 }))).toBe(false)
   })
+  // As measured on a fresh headless session: turn 1 at low, turn 2 at medium, with the same loss when no effort switched.
+  const opening: Step = { model: 'claude-opus-5-5', effort: 'low', messageCount: 1, prompt: 20_926, cacheRead: 13_235, at: 1_000, first: true }
+  test('the loss from a conversation\'s first request to its second is no rewrite: Claude Code sends part of the first turn again', () => {
+    expect(cacheRewritten(opening, cur({ effort: 'medium', messageCount: 3, prompt: 26_013, cacheRead: 13_759 }))).toBe(false)
+    expect(cacheRewritten({ ...opening, first: false }, cur({ effort: 'medium', messageCount: 3, prompt: 26_013, cacheRead: 13_759 }))).toBe(true)
+  })
+  test('a rewrite later in the conversation is still caught', () => {
+    const second: Step = { ...opening, effort: 'medium', messageCount: 3, prompt: 26_013, cacheRead: 13_759, at: 20_000, first: false }
+    expect(cacheRewritten(second, cur({ effort: 'xhigh', messageCount: 5, prompt: 27_000, cacheRead: 11_000, at: 40_000 }))).toBe(true)
+  })
   test('a miss where the cache was not read before, on another model, or on a step without new input marks nothing', () => {
     expect(cacheRewritten({ ...prev, cacheRead: 0 }, cur({ cacheRead: 0 }))).toBe(false)
     expect(cacheRewritten(prev, cur({ cacheRead: 0, model: 'claude-fable-5-1' }))).toBe(false)

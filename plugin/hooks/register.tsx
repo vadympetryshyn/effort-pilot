@@ -899,7 +899,8 @@ export const register: Register = (on, options) => {
     if (u) {
       const cur = { model: e.model, effort: sent, messageCount: e.messageCount, prompt: promptOf(u), cacheRead: u.cache_read_input_tokens, at: began }
       const prev = lastStep
-      lastStep = { ...cur, at: began + took }
+      // A conversation's first request: none seen yet in this process, or the conversation began again (a /clear).
+      lastStep = { ...cur, at: began + took, first: !prev || e.messageCount < prev.messageCount }
       if (managed(e.model) && cacheRewritten(prev, { ...cur, input })) await rewrote($, e.model, prev!, cur)
       await update($, acc, a => tallied(a, sent, base, u, took))
     }

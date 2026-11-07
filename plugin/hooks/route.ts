@@ -88,8 +88,11 @@ export function asideText(model: string, why: Aside) {
   return `off on ${model} — effort is one setting per request here${detail}, so a change would rewrite the prompt cache; your own effort stands`
 }
 
-/** One main-loop request as the cache check needs it. at: when it started (cur) or ended (prev), in ms. */
-export type Step = { model: string; effort: string | number | null; messageCount: number; prompt: number; cacheRead: number; at: number }
+/**
+ * One main-loop request as the cache check needs it. at: when it started (cur) or ended (prev), in ms. first: the
+ * conversation's first request the pilot saw.
+ */
+export type Step = { model: string; effort: string | number | null; messageCount: number; prompt: number; cacheRead: number; at: number; first?: boolean }
 /** Below this the API caches nothing, and five minutes is the cache's life: a miss after either tells nothing. */
 const CACHED = 4096
 const LIFE = 5 * 60_000
@@ -102,10 +105,12 @@ export const promptOf = (u: { input_tokens: number; cache_read_input_tokens: num
  * one setting of the whole request here. With the cache kept, the request reads back about all of the prompt before
  * it (Claude Code caches up to the last message); a rewrite often reads only the system and tools prefix, which on a
  * short conversation is over half the prompt. So it is judged by what was not read back: at least CACHED tokens (a
- * smaller loss costs nothing worth acting on) and more than a fifth of the prompt before it.
+ * smaller loss costs nothing worth acting on) and more than a fifth of the prompt before it. Never against the
+ * conversation's first request: Claude Code itself sends part of the first turn again on the second (its start-of-session
+ * context), so the second request reads back only the system and tools prefix whatever the effort, a switch or none.
  */
 export function cacheRewritten(prev: Step | null, cur: Step & { input: boolean }) {
-  if (!prev || !cur.input) return false
+  if (!prev || prev.first || !cur.input) return false
   if (cur.effort === null || prev.effort === null || cur.effort === prev.effort) return false
   if (cur.model !== prev.model || cur.messageCount < prev.messageCount) return false
   if (cur.at - prev.at >= LIFE || prev.cacheRead <= 0 || prev.prompt < CACHED) return false
