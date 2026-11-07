@@ -177,6 +177,16 @@ test('the pane\'s net is not clear while a compared phase\'s cost range spans ze
   await ui.unmount()
 })
 
+test('the pane gives a listed agent type its own group, with its pilot and control counts', { options: { measure: true } }, async ($, on) => {
+  const run = { who: 'agent', agent: 'lab:builder', via: 'listed' } as const
+  disk(on, [...Array.from({ length: 3 }, () => turn(run)), ...Array.from({ length: 2 }, () => control(run))])
+  on('ui.open', () => ({ value: { isPlaced: true } }))
+  await $.command.run(command)
+  const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  expect((await ui.find({ type: 'Text', text: /^agent lab:builder · implement/ }))?.text).toContain('3 pilot, 2 control turns')
+  await ui.unmount()
+})
+
 test('refresh reads the records again', { options: { measure: true } }, async ($, on) => {
   const fs = disk(on, sample())
   on('ui.open', () => ({ value: { isPlaced: true } }))
