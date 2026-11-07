@@ -2,6 +2,13 @@
 
 All notable changes. Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions: [SemVer](https://semver.org/).
 
+## [1.6.0] — 2026-11-07
+
+- Your own and plugin agents can be steered too. A new option, `agents`, lists agent types the pilot sets by their brief, like the built-in ones, even when the agent's file declares an effort: a plugin's agent (`lab:builder`), every agent of a plugin (`lab:*`), your own or a project's agent by its name (`reviewer`), or `*` for every agent that is not built in. Empty by default: nothing changes until you list one. An effort named in the Agent call, `CLAUDE_CODE_SUBAGENT_EFFORT`, a number budget and a model the pilot does not manage still win; forks, teammates and workflow agents are left alone.
+- A headless session started as an agent (`claude -p --agent <type>`) with `headless` on reads its first prompt as that agent's brief: never below the build effort. The agent is detected from Claude Code; a launcher can name it with the new `sessionAgent` option. If you already run `headless` with `--agent`, your first prompt is now read as a brief.
+- Records of these runs carry `agent` and `via` (`listed` for a listed subagent, `session` for a headless agent session), and the report has its own groups per agent type, pilot against control.
+- A fresh session no longer stops steering on a false cache alarm: Claude Code re-sends part of the first request on the second, which the cache check took for a rewrite caused by the effort switch.
+
 ## [1.5.3] — 2026-11-07
 
 - In plan mode, an effort you ask for in the prompt ("plan it on max") now shows as asked on the band and the status line, and the turn is recorded as asked, so the report keeps it out of its comparisons instead of counting it as the pilot's own plan turn.

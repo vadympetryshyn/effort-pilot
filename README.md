@@ -108,7 +108,7 @@ All in `/config` → **effort-pilot**.
 
 Built-in subagents (`general-purpose`, `Explore`, `Plan`, …) get an effort from their brief. An agent of your own (`~/.claude/agents`, `.claude/agents`) or from a plugin is left alone by default: it runs at the effort its definition sets, or the session's, since an effort its author set is a choice.
 
-To steer some anyway, list them in `agents`, comma-separated, by exact name: `reviewer` (your own or your project's), `lab:builder` (a plugin's), `lab:*` (every agent of a plugin), or `*` (every agent that is not a built-in). A listed agent is then set by its brief like a built-in, never below the build effort. An effort the Agent call names, `CLAUDE_CODE_SUBAGENT_EFFORT`, a number budget, and a model Effort Pilot does not manage still win, as for built-ins; forks, teammates and workflow agents are left alone.
+To steer some anyway, list them in `agents`, comma-separated, by exact name: `reviewer` (your own or your project's), `lab:builder` (a plugin's), `lab:*` (every agent of a plugin), or `*` (every agent that is not a built-in). A listed agent is then set by its brief like a built-in, never below the build effort. An effort the Agent call names, `CLAUDE_CODE_SUBAGENT_EFFORT`, a number budget, and a model Effort Pilot does not manage still win, as for built-ins; forks, teammates and workflow agents are left alone. In `claude -p` runs a listed agent is steered only with `headless` on, as built-ins are.
 
 What you give up: the effort the author declared is overridden for the agents you list. With **measure** on, a share of their runs (`controlShare`) is still left at their own effort, so the report can show what listing them saved and whether those runs fell short more often.
 
