@@ -534,3 +534,19 @@ describe('two reads of a level asked', () => {
     expect(agreed(first, null)).toBe(first)
   })
 })
+
+describe('the classifier text for a subagent\'s brief', () => {
+  test('it tells the classifier that routine steps never make the work hard', () => {
+    const text = briefPrompt('general-purpose', 'fix the button', 'Fix the button label, run the tests and commit.', null)
+    expect(text).toContain('hard is the work itself, never its routine steps')
+    expect(text).toContain('An Explore subagent searches and reports: chat unless the brief asks it for a verdict.')
+    expect(text).toContain('a comparison of what exists')
+  })
+  test('it reads a brief up to 12000 characters', () => {
+    const pad = (n: number) => 'x'.repeat(n)
+    const brief = pad(6000) + 'MARKER_NEAR' + pad(7000) + 'MARKER_FAR' + pad(100)
+    const text = briefPrompt('general-purpose', 'long brief', brief, null)
+    expect(text).toContain('MARKER_NEAR')
+    expect(text).not.toContain('MARKER_FAR')
+  })
+})
