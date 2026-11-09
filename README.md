@@ -1,8 +1,8 @@
 # What is Effort Pilot?
 
-### Spend 20–50% fewer tokens and get responses ~1.5× faster in <img src="assets/claude-inline.svg" height="30" alt=""> Claude Code.
+### The right reasoning effort for every turn in <img src="assets/claude-inline.svg" height="30" alt=""> Claude Code, set for you.
 
-Effort Pilot switches the reasoning effort for every turn, automatically: plans get `xhigh`, building gets `medium`, questions and trivial tasks — a git commit, a push, a rename — get `low`. You stop paying for deep thinking where none is needed, and get more of it where it counts.
+Effort Pilot switches the reasoning effort for every turn, automatically: plans get `xhigh`, building gets `medium`, questions and trivial tasks — a git commit, a push, a rename — get `low`. Deep thinking goes where it counts, and a quick question no longer waits on it.
 
 [![version](https://img.shields.io/github/v/release/vadympetryshyn/effort-pilot?label=version&color=d97757)](https://github.com/vadympetryshyn/effort-pilot/releases)
 [![CI](https://github.com/vadympetryshyn/effort-pilot/actions/workflows/ci.yml/badge.svg)](https://github.com/vadympetryshyn/effort-pilot/actions/workflows/ci.yml)
@@ -14,12 +14,15 @@ Effort Pilot switches the reasoning effort for every turn, automatically: plans 
 
 ## What you get
 
-Same work, compared with leaving effort on `high` all the time: fewer tokens burned, faster responses, and fewer turns
-you have to redo, because hard work gets more thinking, not less.
+Compared with leaving effort on `high` all the time, on the author's own turns:
 
-<img src="assets/why-2.svg" alt="Effort Pilot vs. always-on high: about 35% fewer tokens, 1.5x faster responses, 20% fewer turns that fall short" width="820">
+<img src="assets/why-3.svg" alt="Effort Pilot vs. always-on high: quick questions answered about twice as fast, plans thought through at xhigh, effort set every turn without /effort" width="820">
 
-<sub>≈ Approximate, from the author's own sessions; savings range from ~20% on hard work to ~50% and more on everyday turns. Every setup differs: measure yours with `/effort-pilot report`.</sub>
+- **Quick answers, about twice as fast.** A question or a chat turn runs at `low`: its median model time is about half of what it is at `high` (−50%, 90% range −20% … −67%).
+- **Plans at `xhigh`.** Plans and plan mode get more thinking than `high`, where a wrong plan costs the most.
+- **Nothing to switch.** You never type `/effort`; the line above the prompt shows what it picked and why.
+
+<sub>≈ From the author's own sessions with `/effort-pilot report`. Not proven yet: fewer tokens overall, or fewer turns that fall short — so far the report shows no clear change in either. Every setup differs: measure yours.</sub>
 
 ## Install
 
@@ -130,7 +133,7 @@ Issues and PRs welcome — see [CONTRIBUTING.md](CONTRIBUTING.md). Questions and
 [Discussions](https://github.com/vadympetryshyn/effort-pilot/discussions); a turn that got the wrong effort is the most
 useful [issue](https://github.com/vadympetryshyn/effort-pilot/issues/new?template=misrouted.yml).
 
-If it saves you tokens, a ⭐ helps others find it.
+If it is useful to you, a ⭐ helps others find it.
 
 ## License
 
