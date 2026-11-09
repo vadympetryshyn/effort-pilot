@@ -1,6 +1,6 @@
 {
   "name": "effort-pilot",
-  "version": "1.7.2",
+  "version": "1.8.0",
   "description": "The right reasoning effort for every turn: plans xhigh, building medium, questions low, picked by a Haiku classifier. The model is never changed and the prompt cache is kept: where effort is a whole-request setting (Claude 4.x, Fable 5, Bedrock, Vertex), it stands aside.",
   "author": { "name": "Vadym Petryshyn", "url": "https://github.com/vadympetryshyn" },
   "homepage": "https://github.com/vadympetryshyn/effort-pilot",

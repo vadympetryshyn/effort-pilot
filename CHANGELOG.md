@@ -2,6 +2,11 @@
 
 All notable changes. Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions: [SemVer](https://semver.org/).
 
+## [1.8.0] — 2026-11-09
+
+- Subagents are no longer sent at `high` for work that does not need it. A brief that finds, maps or lists code, collects facts or makes an inventory is light work, however thorough it asks the agent to be; `high` goes to briefs that ask the agent itself for a conclusion: a cause, a verdict, a judgement of cases, the defects of a change, a recommendation, a design. Routine steps (commit, run the tests, the usual deploy, report back) no longer make a build hard: a fix whose cause the brief names, a scoped change, layout, copy or config goes at the build effort. Measured on a few hundred labelled real briefs: work that needs only `medium` was recognised in 47% of reads instead of 37%, with `high` work missed about as rarely as before.
+- A long brief is read up to 12,000 characters instead of 4,000, so a scheduled job's session is classified with its check's output in view.
+
 ## [1.7.2] — 2026-11-09
 
 - An effort level the classifier reads from your message is read twice, and only a level both reads agree on is taken: the lower one, or none when only one read names a level. Now and then the classifier read a level you never named (such as `max` from "think it through well"), and since an asked level holds for the whole piece of work, one misread could run several turns at `max`. A level you really name is read the same both times and holds as before; if the second read gets no answer, the first stands. The extra Haiku call happens only on a turn whose first read names a level (or takes one back), so most turns still make one call.
