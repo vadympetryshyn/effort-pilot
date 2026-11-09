@@ -3,7 +3,7 @@ import type { EngineInterface, Register } from 'claude-code'
 
 import type { AgentRun, Config, Effort, Mode, Route, Spend, Tally, Task, TurnRecord, Who } from '../types'
 import {
-  afterPlan, asideText, briefPrompt, cacheRewritten, commandText, unasked, carry, configFrom, DEFAULTS, EFFORTS, flagOn, forAgent, forNotice, fromBrief, listedAgent, managed as managedBy,
+  afterPlan, agreed, asideText, briefPrompt, cacheRewritten, commandText, unasked, carry, configFrom, DEFAULTS, EFFORTS, flagOn, forAgent, forNotice, fromBrief, listedAgent, managed as managedBy,
   midTurn, noticeOf, parse, parseRecords, prompt, promptOf, recentOf, report, reportData, sameModel, seedPrompt, SHORT, SYSTEM, wholeRequest,
 } from './route'
 import type { Aside, Step } from './route'
@@ -390,9 +390,16 @@ async function noUltrathink($: EngineInterface) {
 
 /** count: false for /effort-pilot classify, a test the person runs by hand. */
 async function classify($: EngineInterface, text: string, count = true, notice = false, midTurn = false): Promise<Route | null> {
-  const { route: r, took } = await ask($, prompt(text, await read($, task), await read($, route), await read($, lastAnswer), notice, midTurn, await noUltrathink($)), count)
-  await update($, latency, () => took)
-  return r
+  const said = prompt(text, await read($, task), await read($, route), await read($, lastAnswer), notice, midTurn, await noUltrathink($))
+  const { route: r, took } = await ask($, said, count)
+  if (!r?.asked && !r?.build && !r?.release) {
+    await update($, latency, () => took)
+    return r
+  }
+  // A level read as asked holds for the whole work: read it again and keep only what both reads name.
+  const again = await ask($, said, count).catch(() => ({ route: null, took: 0 }))
+  await update($, latency, () => took + again.took)
+  return agreed(r, again.route, config)
 }
 
 async function settle($: EngineInterface, next: Route) {

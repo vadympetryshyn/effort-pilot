@@ -2,6 +2,10 @@
 
 All notable changes. Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions: [SemVer](https://semver.org/).
 
+## [1.7.2] — 2026-11-09
+
+- An effort level the classifier reads from your message is read twice, and only a level both reads agree on is taken: the lower one, or none when only one read names a level. Now and then the classifier read a level you never named (such as `max` from "think it through well"), and since an asked level holds for the whole piece of work, one misread could run several turns at `max`. A level you really name is read the same both times and holds as before; if the second read gets no answer, the first stands. The extra Haiku call happens only on a turn whose first read names a level (or takes one back), so most turns still make one call.
+
 ## [1.7.1] — 2026-11-07
 
 - A steered subagent woken again after `/reload-plugins` (or after the plugin was turned on mid-run) keeps the effort it runs at. The pilot had forgotten its brief, so it read the message that woke the agent, such as a background task's notification, as the whole brief and could lower the rest of a hard build. It now leaves such a run at its own effort; its transcript line says `left as is: resumed before the pilot saw its brief`. The same holds for an agent whose brief got no classifier answer at its first spawn: when it is woken again, it stays at its own effort.

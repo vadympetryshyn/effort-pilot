@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'claude-code/testing'
 
 import type { Route, Spend, Task, TurnRecord } from '../types'
-import { afterPlan, briefPrompt, cacheRewritten, carry, configFrom, DEFAULTS, effortFor, flagOn, forAgent, forNotice, managed, midTurn, NO_ULTRATHINK_LINE, noticeOf, parse, parseRecords, perMessage, prompt, report, reportData, sameModel, short, SYSTEM, wholeRequest } from './route'
+import { afterPlan, agreed, briefPrompt, cacheRewritten, carry, configFrom, DEFAULTS, effortFor, flagOn, forAgent, forNotice, managed, midTurn, NO_ULTRATHINK_LINE, noticeOf, parse, parseRecords, perMessage, prompt, report, reportData, sameModel, short, SYSTEM, wholeRequest } from './route'
 import type { Step } from './route'
 
 const route = (phase: Route['phase'], effort: Route['effort'], extra: Partial<Route> = {}): Route => ({ phase, hard: false, effort, why: 'w', ...extra })
@@ -489,5 +489,48 @@ describe('Claude Code\'s ultrathink keyword turned off', () => {
   test('the variable is set by any value but empty, 0 or false', () => {
     expect([undefined, '', ' ', '0', 'false', 'FALSE'].map(flagOn)).toEqual([false, false, false, false, false, false])
     expect(['1', 'true', 'yes'].map(flagOn)).toEqual([true, true, true])
+  })
+})
+
+describe('two reads of a level asked', () => {
+  const read = (reply: Record<string, unknown>) => parse(JSON.stringify({ phase: 'implement', hard: false, continues: false, asked: 'none', build: 'none', faulted: false, why: 'add the button', ...reply }))!
+
+  test('the same level read twice is kept', () => {
+    const first = read({ asked: 'high' })
+    expect(agreed(first, read({ asked: 'high' }))).toEqual(first)
+  })
+
+  test('a level only one read names is dropped, and the effort comes from the phase', () => {
+    const merged = agreed(read({ asked: 'max' }), read({}))
+    expect(merged.asked).toBe(undefined)
+    expect(merged.effort).toBe('medium')
+    expect(merged.why).toBe('add the button')
+  })
+
+  test('a level the first read misses is not taken from the second', () => {
+    const first = read({ phase: 'analyze' })
+    expect(agreed(first, read({ phase: 'analyze', asked: 'max' }))).toEqual(first)
+  })
+
+  test('two levels give the lower one, and the why names it', () => {
+    const merged = agreed(read({ asked: 'max', why: 'reason it through' }), read({ asked: 'xhigh' }))
+    expect(merged).toEqual(expect.objectContaining({ asked: 'xhigh', effort: 'xhigh', why: 'you asked for xhigh: reason it through' }))
+  })
+
+  test('the build level is lowered the same way', () => {
+    expect(agreed(read({ phase: 'plan', build: 'max' }), read({ phase: 'plan', build: 'high' })).build).toBe('high')
+    const dropped = agreed(read({ phase: 'plan', build: 'high' }), read({ phase: 'plan' }))
+    expect(dropped.build).toBe(undefined)
+    expect(dropped.effort).toBe('xhigh')
+  })
+
+  test('a level taken back only when both reads take it back', () => {
+    expect(agreed(read({ asked: 'auto' }), read({ asked: 'auto' })).release).toBe(true)
+    expect(agreed(read({ asked: 'auto' }), read({})).release).toBe(undefined)
+  })
+
+  test('with no second read the first stands', () => {
+    const first = read({ asked: 'max', build: 'high' })
+    expect(agreed(first, null)).toBe(first)
   })
 })

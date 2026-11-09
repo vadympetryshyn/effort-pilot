@@ -343,10 +343,36 @@ export function midTurn(task: Task | null, current: Route | null, pick: Route, t
  */
 export function fromBrief(pick: Route, config: Config = DEFAULTS): Route {
   if (!pick.asked && !pick.build && !pick.release) return pick
-  const { asked, build: _b, release: _r, ...rest } = pick
-  // parse() leads the why with the level it read as asked: that prefix is its own, dropped with the level.
-  const why = asked ? rest.why.replace(`you asked for ${asked}: `, '') : rest.why
-  return { ...rest, effort: effortFor(rest.phase, rest.hard, false, config), why }
+  return withLevels(pick, {}, config)
+}
+
+/**
+ * Two reads of one prompt, for a level asked: the classifier now and then reads a level the person never named, and an
+ * asked level holds for every follow-up of the work, so one misread would run a whole piece of work at it. The first
+ * read is the route; it keeps only what both reads name: the lower asked level and the lower build level (a read that
+ * names none counts lowest, so the level is dropped), and a release only when both read one. With no second read (a
+ * timeout, no answer), the first stands: an outage must not swallow a real ask.
+ */
+export function agreed(first: Route, second: Route | null, config: Config = DEFAULTS): Route {
+  if (!second) return first
+  const lower = (a?: Effort, b?: Effort) => (a && b ? (RANK[a] <= RANK[b] ? a : b) : undefined)
+  const levels = { asked: lower(first.asked, second.asked), build: lower(first.build, second.build), release: !!first.release && !!second.release }
+  if (levels.asked === first.asked && levels.build === first.build && levels.release === !!first.release) return first
+  return withLevels(first, levels, config)
+}
+
+/**
+ * A pick with its asked levels set anew: the effort is the asked level, else the rule's for the phase; the why's lead
+ * that parse() puts on an asked level names the new one, or goes with it.
+ */
+function withLevels(pick: Route, levels: { asked?: Effort; build?: Effort; release?: boolean }, config: Config): Route {
+  const { asked: was, build: _b, release: _r, ...rest } = pick
+  const why = was ? rest.why.replace(`you asked for ${was}: `, '') : rest.why
+  const { asked, build, release } = levels
+  return {
+    ...rest, effort: asked ?? effortFor(rest.phase, rest.hard, false, config), why: asked ? `you asked for ${asked}: ${why}` : why,
+    ...(asked ? { asked } : {}), ...(build ? { build } : {}), ...(release ? { release } : {}),
+  }
 }
 
 /**
