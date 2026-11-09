@@ -96,6 +96,8 @@ export type TurnRecord = {
   pick?: { phase: Phase; hard: boolean }
   /** The rules kept the effort of the work under way rather than the turn's own pick. */
   kept?: true
+  /** Plan mode was on in the turn: never a control turn, so left out of the comparison. */
+  planMode?: true
   /** A turn recorded by a test run: left out of the report. */
   test?: true
 }
@@ -196,6 +198,8 @@ declare module 'claude-code' {
       spend: Shaped<Spend>
       /** Plan mode was on at some point of this main-loop turn: the turn records as a plan. */
       planned: boolean
+      /** The classifier gave no answer for this main-loop turn's message: it runs at the person's own effort, unrecorded. */
+      blind: boolean
       /** The effort in effect on the wire (Claude Code changes it only on a request with new input). */
       wire: Effort | null
       /** Whose turn the main loop runs now; null: a prompt the pilot does not route (left untouched, not recorded). */

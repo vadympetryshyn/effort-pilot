@@ -2,7 +2,7 @@ import type { On } from 'claude-code'
 import { describe, expect, test } from 'claude-code/testing'
 
 import type { TurnRecord } from '../types'
-import { report, reportData } from './route'
+import { report, reportData, turnCost } from './route'
 import { DAY, slotFile } from './store'
 
 const NOW = 20_400 * DAY + 3_600_000
@@ -100,6 +100,20 @@ describe('the report as data', () => {
     const net = reportData(shaky()).net!
     expect(net.saved - net.perTurn).toBeGreaterThan(0)
     expect(net).toMatchObject({ verdict: 'unclear', unclear: 1, phases: 1 })
+  })
+
+  test('leaves a turn in plan mode out of both arms, counted as not compared', () => {
+    // Plan mode never runs a control turn: its turns would fill the pilot arm against plan requests made outside it.
+    const plans = [
+      ...Array.from({ length: 6 }, (_, i) => turn({ phase: 'plan', chosen: 'xhigh', sent: 'xhigh', out: 900 + i, planMode: true })),
+      ...Array.from({ length: 2 }, () => turn({ phase: 'plan', chosen: 'xhigh', sent: 'xhigh' })),
+      ...Array.from({ length: 2 }, () => control({ phase: 'plan', chosen: 'xhigh', planMode: true })),
+      control({ phase: 'plan', chosen: 'xhigh' }),
+    ]
+    const p = reportData(plans).phases.find(x => x.phase === 'plan')!
+    expect(p.pilot?.turns).toBe(2)
+    expect(p.control?.turns).toBe(1)
+    expect(p.same).toBe(8)
   })
 
   test('has nothing to read with no records', () => {
@@ -228,4 +242,30 @@ test('a pane drawn before any read offers to read', async $ => {
   expect((await ui.find({ type: 'Text', text: /Not read yet/ }))).toBeDefined()
   expect((await ui.find({ type: 'Button', key: 'refresh' }))).toBeDefined()
   await ui.unmount()
+})
+
+describe('the cost of a turn', () => {
+  // A million tokens of each kind: the sum of the model's four prices (input, output, cache read, 1-hour cache write).
+  // In cents, so float sums compare exactly.
+  const million = (model: string) => Math.round(turnCost(turn({ model, input: 1e6, out: 1e6, cacheRead: 1e6, cacheWrite: 1e6 })) * 100)
+
+  test('is priced by the model\'s family and version', () => {
+    expect(million('claude-fable-5-2')).toBe(6420)
+    expect(million('claude-fable-5-1')).toBe(8025)
+    expect(million('claude-fable-5')).toBe(8100)
+    expect(million('claude-opus-5-5')).toBe(3220)
+    expect(million('claude-opus-5')).toBe(4050)
+  })
+
+  test('reads a dated or tagged id as its version', () => {
+    expect(million('claude-fable-5-2[1m]')).toBe(million('claude-fable-5-2'))
+    expect(million('claude-fable-5-1-20260301')).toBe(million('claude-fable-5-1'))
+    expect(million('claude-fable-5-20260101')).toBe(million('claude-fable-5'))
+  })
+
+  test('takes the family\'s newest price for a version it does not list, and Opus\'s for a model of no known family', () => {
+    expect(million('claude-fable-5-9')).toBe(million('claude-fable-5-2'))
+    expect(million('claude-opus-5-9')).toBe(million('claude-opus-5-5'))
+    expect(million('')).toBe(million('claude-opus-5-5'))
+  })
 })

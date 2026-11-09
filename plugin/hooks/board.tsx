@@ -136,7 +136,7 @@ export function board(ui: Ui, read: { data: ReportData; where: string } | null, 
         <Box flexDirection="column">
           <Text bold>Not compared</Text>
           {none.map(p => (
-            <Text dimColor>  {groupTitle(p.who, p.agent)} · {p.phase}: {plural(p.same, 'turn')} (high either way, another own effort, an asked one, or held over)</Text>
+            <Text dimColor>  {groupTitle(p.who, p.agent)} · {p.phase}: {plural(p.same, 'turn')} (high either way, another own effort, an asked one, plan mode, or held over)</Text>
           ))}
         </Box>
       ) : null}

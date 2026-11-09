@@ -2,6 +2,12 @@
 
 All notable changes. Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions: [SemVer](https://semver.org/).
 
+## [1.8.1] — 2026-11-09
+
+- A turn the classifier gives no answer for (a timeout, an outage) runs at your own effort instead of the effort the turn before it picked: a hard request right after a light chat turn no longer goes at `low`. The status line says `effort: your own · the classifier gave no answer`, and the band shows your own effort with the same reason. It holds for that turn only; the next turn is classified as usual. Such a turn is not recorded. A turn in plan mode, and a message typed mid-turn, work as before; a notification that arrives during work under way still goes at that work's effort.
+- The report no longer compares plan-mode turns. Plan mode never runs a control turn, so its turns filled the pilot side of the plan phase against only the plan requests made outside plan mode. A turn in plan mode is now recorded with `planMode: true` and counted as not compared. Records written before this release cannot be told apart and still count until they age out (90 days); `/effort-pilot reset` clears them.
+- Each model is priced at its own rate in the report: Fable 5.2, Fable 5.1, Fable 5, Opus 5.5 and Opus 5 by Anthropic's current price list, where every Fable model used to be priced as Fable 5.1 and every other model as Opus 5.5. A version not on the list takes its family's newest price.
+
 ## [1.8.0] — 2026-11-09
 
 - Subagents are no longer sent at `high` for work that does not need it. A brief that finds, maps or lists code, collects facts or makes an inventory is light work, however thorough it asks the agent to be; `high` goes to briefs that ask the agent itself for a conclusion: a cause, a verdict, a judgement of cases, the defects of a change, a recommendation, a design. Routine steps (commit, run the tests, the usual deploy, report back) no longer make a build hard: a fix whose cause the brief names, a scoped change, layout, copy or config goes at the build effort. Measured on a few hundred labelled real briefs: work that needs only `medium` was recognised in 47% of reads instead of 37%, with `high` work missed about as rarely as before.

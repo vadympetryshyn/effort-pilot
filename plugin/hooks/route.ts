@@ -56,18 +56,25 @@ export function managed(model: string | null | undefined, config: Config = DEFAU
  * A model not known here counts as per message: the usage check catches it.
  */
 export type Aside = 'model' | 'provider' | 'number' | 'usage'
+/**
+ * A model id's family and version in the newer naming, which puts the family first: claude-opus-4-6,
+ * claude-sonnet-4-5-20250929, claude-fable-5-1[1m]. A minor version is one or two digits; eight are a date. Null for
+ * another naming.
+ */
+export function versionOf(model: string | null | undefined) {
+  const v = /(?:^|[^a-z])(opus|sonnet|haiku|fable)[-\s](\d+)(?:[-.](\d{1,2}))?(?![0-9])/.exec((model ?? '').toLowerCase())
+  return v ? { family: v[1]!, major: Number(v[2]), minor: v[3] === undefined ? undefined : Number(v[3]) } : null
+}
 export function wholeRequest(model: string | null | undefined, firstParty: boolean, effort?: string | number): Aside | null {
   const m = (model ?? '').toLowerCase()
   if (m) {
     // The older naming puts the generation first: claude-3-5-sonnet, claude-2.1.
     if (/claude-\d/.test(m)) return 'model'
-    // The newer one puts the family first: claude-opus-4-6, claude-sonnet-4-5-20250929, claude-fable-5-1[1m]. A minor
-    // version is one or two digits; eight are a date.
-    const v = /(?:^|[^a-z])(opus|sonnet|haiku|fable)[-\s](\d+)(?:[-.](\d{1,2}))?(?![0-9])/.exec(m)
+    // The newer one puts the family first (versionOf).
+    const v = versionOf(m)
     if (v) {
-      const major = Number(v[2])
-      if (major < 5) return 'model'
-      if (v[1] === 'fable' && major === 5 && v[3] === undefined) return 'model'
+      if (v.major < 5) return 'model'
+      if (v.family === 'fable' && v.major === 5 && v.minor === undefined) return 'model'
     }
   }
   if (!firstParty) return 'provider'
@@ -455,17 +462,36 @@ export const SHORT: Record<Effort, string> = { low: 'low', medium: 'med', high: 
 
 // $ per million tokens at API prices — one unit to weigh Opus, Fable and Haiku tokens against each other
 // (on a subscription the same weights spend the usage limit). Cache writes at the 1-hour rate, 2× input.
-const PRICE = {
-  opus: { input: 4, out: 20, cacheRead: 0.2, cacheWrite: 8 },
-  fable: { input: 10, out: 50, cacheRead: 0.25, cacheWrite: 20 },
-  haiku: { input: 0.1, out: 0.5, cacheRead: 0.01, cacheWrite: 0.2 },
-}
 type Tokens = { input: number; out: number; cacheRead: number; cacheWrite: number }
+/** Each family's prices by version (major, or major.minor), the newest first. */
+const PRICES: Record<'opus' | 'fable', [string, Tokens][]> = {
+  opus: [
+    ['5.5', { input: 4, out: 20, cacheRead: 0.2, cacheWrite: 8 }],
+    ['5', { input: 5, out: 25, cacheRead: 0.5, cacheWrite: 10 }],
+  ],
+  fable: [
+    ['5.2', { input: 8, out: 40, cacheRead: 0.2, cacheWrite: 16 }],
+    ['5.1', { input: 10, out: 50, cacheRead: 0.25, cacheWrite: 20 }],
+    ['5', { input: 10, out: 50, cacheRead: 1, cacheWrite: 20 }],
+  ],
+}
+const HAIKU: Tokens = { input: 0.1, out: 0.5, cacheRead: 0.01, cacheWrite: 0.2 }
+/**
+ * A main-loop model's prices: its family's at its version. A version not listed takes its family's newest price, and
+ * a model of no known family Opus's newest.
+ */
+export function priceOf(model: string): Tokens {
+  const v = versionOf(model)
+  const family = v?.family === 'fable' || (!v && model.toLowerCase().includes('fable')) ? 'fable' : 'opus'
+  const list = PRICES[family]
+  const key = v && (v.family === 'fable' || v.family === 'opus') ? (v.minor ? `${v.major}.${v.minor}` : `${v.major}`) : ''
+  return (list.find(([k]) => k === key) ?? list[0]!)[1]
+}
 const priced = (t: Tokens, p: Tokens) => (t.input * p.input + t.out * p.out + t.cacheRead * p.cacheRead + t.cacheWrite * p.cacheWrite) / 1e6
 /** What a turn's main-loop requests cost: input, output and cache, so fewer steps at a lower effort count too. */
-export const turnCost = (r: TurnRecord) => priced(r, r.model.includes('fable') ? PRICE.fable : PRICE.opus)
+export const turnCost = (r: TurnRecord) => priced(r, priceOf(r.model))
 /** What classifying a turn's messages cost on Haiku. */
-export const classifierCost = (c: Spend) => priced(c, PRICE.haiku)
+export const classifierCost = (c: Spend) => priced(c, HAIKU)
 
 const count = (x: unknown) => (typeof x === 'number' && Number.isFinite(x) ? x : 0)
 
@@ -600,8 +626,8 @@ export function netWords(n: NonNullable<ReportData['net']>) {
  * The measurement's read, always against high: the person's own effort high is the one baseline. Three measures per
  * phase: cost, speed (the model's time) and quality (how often the turn fell short). Only turns where the efforts
  * differ are compared: pilot turns that went at another effort than high, against control turns left at high where
- * the pilot would have sent another. Turns at another own effort, efforts asked for in words and turns marked as a
- * test are left out.
+ * the pilot would have sent another. Turns at another own effort, efforts asked for in words, turns in plan mode and
+ * turns marked as a test are left out.
  */
 export function reportData(all: readonly TurnRecord[]): ReportData {
   const records = all.filter(r => !r.test && r.reason !== 'error')
@@ -624,9 +650,10 @@ export function reportData(all: readonly TurnRecord[]): ReportData {
   for (const { who, agent, has } of groups) for (const phase of PHASES) {
     const turns = records.filter(r => has(r) && r.phase === phase)
     if (!turns.length) continue
-    // A pilot turn counts where its own pick went (an effort held over from before the turn is not its pick).
-    const a = turns.filter(r => r.arm === 'auto' && !r.asked && r.base === 'high' && r.sent === r.chosen && r.sent !== 'high')
-    const c = turns.filter(r => r.arm === 'control' && r.base === 'high' && r.sent === 'high' && r.chosen !== 'high')
+    // A pilot turn counts where its own pick went (an effort held over from before the turn is not its pick). A turn
+    // in plan mode is never a control turn, so it has no counterpart: on neither arm.
+    const a = turns.filter(r => r.arm === 'auto' && !r.asked && !r.planMode && r.base === 'high' && r.sent === r.chosen && r.sent !== 'high')
+    const c = turns.filter(r => r.arm === 'control' && !r.planMode && r.base === 'high' && r.sent === 'high' && r.chosen !== 'high')
     const read: PhaseRead = {
       who, ...(agent ? { agent } : {}), phase,
       efforts: [...new Set(a.map(x => x.sent).filter((x): x is Effort => Boolean(x)))],
@@ -685,7 +712,7 @@ export function reportData(all: readonly TurnRecord[]): ReportData {
 export function report(all: readonly TurnRecord[]) {
   const d = reportData(all)
   if (!d.turns) return 'no turns recorded yet'
-  const why = 'at high either way, another own effort, an effort you asked for, or one held over'
+  const why = 'at high either way, another own effort, an effort you asked for, plan mode, or one held over'
   const row = (x: ArmRead) =>
     `${x.turns} turns · ${usd(x.cost)} a turn · model time ${sec(x.time)} median · fell short ${Math.round(x.short * 100)}%`
   const judged = (name: string, m: MeasureRead, show: (x: number) => string) =>
@@ -708,7 +735,7 @@ export function report(all: readonly TurnRecord[]) {
     ? `net over ${n.phases} compared phases (${n.turns} pilot turns): cost ${usd(n.saved)} a turn saved − classifier ${usd(n.perTurn)} = ${usd(n.saved - n.perTurn)} → ${netWords(n)}; model time ${sec(Math.abs(n.faster))} a turn ${n.faster >= 0 ? 'faster' : 'slower'}; quality: see "fell short" per phase`
     : `net: not known yet — no phase has ${ENOUGH}+ turns on each arm`
   return [
-    `${d.turns} turns over ${d.days.toFixed(1)} days, ${d.sessions} sessions${d.left ? ` (${d.left} test or failed turns left out)` : ''} · costs at API prices (a common unit for Opus and Haiku tokens)`,
+    `${d.turns} turns over ${d.days.toFixed(1)} days, ${d.sessions} sessions${d.left ? ` (${d.left} test or failed turns left out)` : ''} · costs at API prices (a common unit for Opus, Fable and Haiku tokens)`,
     ...lines,
     own,
     net,

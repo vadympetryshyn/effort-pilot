@@ -201,3 +201,22 @@ test('a turn that plans and has its plan approved records the plan effort as cho
   expect(r).toEqual(expect.objectContaining({ phase: 'plan', chosen: 'xhigh', sent: 'xhigh' }))
   expect(r?.asked).toBe(undefined)
 })
+
+test('a turn in plan mode is marked as one, so the report keeps it out of its comparison', { options: { measure: true, controlShare: 0 } }, async ($, on) => {
+  const seen = engine(on, PLAN)
+  await planning($)
+  await complete($)
+  expect(seen.records()).toEqual([expect.objectContaining({ phase: 'plan', planMode: true })])
+})
+
+test('a plan asked for outside plan mode is not marked as plan mode', { options: { measure: true, controlShare: 0 } }, async ($, on) => {
+  const seen = engine(on, PLAN)
+  await $.prompt.submit({ text: 'Plan a CSV export for the reports page.', origin: { kind: 'composer' } } as never)
+  await $.classic.UserPromptSubmit({ prompt: 'Plan a CSV export for the reports page.', permission_mode: 'default' } as never)
+  await $.turn.start({ text: 'Plan a CSV export for the reports page.', turnId: 't1' })
+  await step($, 0)
+  await complete($)
+  const [r] = seen.records()
+  expect(r).toEqual(expect.objectContaining({ phase: 'plan', sent: 'xhigh' }))
+  expect(r?.planMode).toBe(undefined)
+})

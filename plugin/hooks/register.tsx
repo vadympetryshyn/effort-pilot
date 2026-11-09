@@ -67,6 +67,9 @@ const agents = atom({ plugin: 'effort-pilot', key: 'agents' } as const, [], { sh
 const wire = atom({ plugin: 'effort-pilot', key: 'wire' } as const, null as Effort | null)
 // Plan mode was on at some point of this main-loop turn: the turn records as a plan.
 const planned = atom({ plugin: 'effort-pilot', key: 'planned' } as const, false)
+// The classifier gave no answer for this turn's message (a timeout, an outage): the turn runs at the person's own
+// effort, not at the effort the turn before it picked, and is not recorded. The next turn routes as usual.
+const blind = atom({ plugin: 'effort-pilot', key: 'blind' } as const, false)
 const acc = atom({ plugin: 'effort-pilot', key: 'acc' } as const, EMPTY, { shape: 'acc-3' })
 // The report the pane draws, as read when it opened or was last refreshed.
 const board = atom({ plugin: 'effort-pilot', key: 'board' } as const, null, { shape: 'board-1' })
@@ -104,7 +107,7 @@ async function publish($: EngineInterface) {
   const value = m !== 'auto' || !managed(name) ? null
     : p ? { effort: p, source: 'pinned' as const }
     : a === 'auto' && (await read($, planMode)) ? { effort: await planLevel($), source: 'auto' as const }
-    : r && a === 'auto' ? { effort: r.effort, source: 'auto' as const }
+    : r && a === 'auto' && !(await read($, blind)) ? { effort: r.effort, source: 'auto' as const }
     : null
   await update($, effective, () => value)
 }
@@ -142,6 +145,7 @@ async function setPlan($: EngineInterface, isPlan: boolean) {
  */
 async function begin($: EngineInterface, text: string, kind: string, handBack = false) {
   const notice = NOTICE.has(kind)
+  await update($, blind, () => false)
   await credential($)
   if (!routed(kind) || (await read($, mode)) === 'off') {
     await update($, who, () => null)
@@ -179,6 +183,11 @@ async function begin($: EngineInterface, text: string, kind: string, handBack = 
   await update($, arm, () => (next && !next.asked && differs(next.effort) && Math.random() < share0 ? 'control' : 'auto'))
   if (carried) await update($, task, () => carried.task)
   if (next) await settle($, next)
+  else {
+    // No pick: the effort the turn before picked would go on by default, though this message may need far more.
+    await update($, blind, () => true)
+    $.ui.status('effort: your own · the classifier gave no answer')
+  }
   await publish($)
 }
 
@@ -376,6 +385,7 @@ async function delivered($: EngineInterface, kind: string, text: string) {
   if (took.route?.asked) await update($, arm, () => 'auto' as const)
   await update($, task, () => took.task)
   if (took.route) {
+    await update($, blind, () => false)
     await settle($, took.route)
     await publish($)
   }
@@ -433,7 +443,9 @@ async function aim($: EngineInterface, name: string): Promise<Effort | undefined
   const live = (await read($, mode)) === 'auto' && managed(name) && (await read($, who)) !== null
     && (p !== null || (await read($, arm)) === 'auto')
   if (!live) return undefined
-  return p ?? ((await read($, planMode)) ? await planLevel($) : (await read($, route))?.effort)
+  if (p !== null) return p
+  if (await read($, planMode)) return await planLevel($)
+  return (await read($, blind)) ? undefined : (await read($, route))?.effort
 }
 
 /**
@@ -1023,7 +1035,7 @@ export const register: Register = (on, options) => {
     const cls = await read($, spend)
     await update($, spend, () => NONE)
     // Only turns the pilot routed and classified, and not pinned by hand.
-    if (r && w && a.steps > 0 && managed(m) && (await read($, mode)) === 'auto' && (await read($, pin)) === null) {
+    if (r && w && a.steps > 0 && managed(m) && (await read($, mode)) === 'auto' && (await read($, pin)) === null && !(await read($, blind))) {
       const plan = await read($, planned)
       await keep($, {
         t: await $.clock.now(), s: await $.session.id(), arm: await read($, arm),
@@ -1031,8 +1043,13 @@ export const register: Register = (on, options) => {
         base: a.base, sent: a.sent, model: m, steps: a.steps, out: a.out, input: a.input,
         cacheRead: a.cacheRead, cacheWrite: a.cacheWrite, ms: Math.round((await $.clock.now()) - a.at), reason: e.reason, cls,
         who: w, ...(sessionAgent() ? { agent: sessionAgent(), via: 'session' as const } : {}), trace: a.trace, gen: Math.round(a.gen), ...(faulted ? { faulted: true } : {}), ...(r.asked || (plan && aimed?.asked) ? { asked: true as const } : {}),
-        ...picked(own, r),
+        ...picked(own, r), ...(plan ? { planMode: true as const } : {}),
       }).catch(err => $.ui.log(`effort-pilot: could not keep the turn: ${String(err)}`))
+    }
+    // An unanswered classification holds for its own turn only.
+    if (await read($, blind)) {
+      await update($, blind, () => false)
+      await publish($)
     }
     return result
   })
@@ -1076,6 +1093,19 @@ export const register: Register = (on, options) => {
     const shown = subs.filter(a => a.status === 'running').concat(subs.filter(a => a.status === 'done').reverse()).slice(0, 4)
     // A control turn goes at the person's own effort: say that effort first, and the pilot's pick only as what it
     // would have been, so the pick is never read as the effort in force.
+    // No answer from the classifier: the person's own effort, not the last pick, which the trail still ends on.
+    if (m === 'auto' && !p && (await read($, blind)) && !(await read($, planMode))) {
+      const own = sessionEffort ?? (await read($, wire))
+      return (
+        <Box flexDirection="column">
+          <Box gap={1}>
+            <Text bold color="claude">⏵ effort{own ? ` ${SHORT[own as keyof typeof SHORT] ?? own}` : ''}</Text>
+            <Text color="warning">your own: the classifier gave no answer for this message</Text>
+          </Box>
+          {below}
+        </Box>
+      )
+    }
     if (m === 'auto' && !p && (await read($, arm)) === 'control') {
       // The session's own setting as the last request carried it; before any request, the one last in effect.
       const own = sessionEffort ?? (await read($, wire))
