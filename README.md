@@ -20,9 +20,10 @@ Compared with leaving effort on `high` all the time, on the author's own turns:
 
 - **Quick answers, about twice as fast.** A question or a chat turn runs at `low`: its median model time is about half of what it is at `high` (−52%, 90% range −22% … −68%).
 - **Plans at `xhigh`.** Plans and plan mode get more thinking than `high`, where a wrong plan costs the most.
+- **Up to 10% fewer tokens.** Every turn that drops from `high` to `medium` or `low` thinks less, so it spends fewer tokens. How much you save depends on your settings: the more levels you set below `high`, the more you save.
 - **Nothing to switch.** You never type `/effort`; the line above the prompt shows what it picked and why.
 
-<sub>≈ From the author's own sessions with `/effort-pilot report`. Not proven yet: fewer tokens overall, or fewer turns that fall short. Every setup differs: measure yours.</sub>
+<sub>≈ From the author's own sessions with `/effort-pilot report`. Token savings vary with your settings and your work. Not proven yet: fewer turns that fall short. Every setup differs: measure yours.</sub>
 
 ## Install
 
