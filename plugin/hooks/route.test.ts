@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'claude-code/testing'
 
 import type { Route, Spend, Task, TurnRecord } from '../types'
-import { afterPlan, agreed, briefPrompt, cacheRewritten, carry, configFrom, DEFAULTS, effortFor, flagOn, forAgent, forNotice, managed, midTurn, NO_ULTRATHINK_LINE, noticeOf, parse, parseRecords, perMessage, prompt, report, reportData, sameModel, short, SYSTEM, wholeRequest } from './route'
+import { afterPlan, agreed, briefPrompt, cacheRewritten, carry, configFrom, DEFAULTS, effortFor, flagOn, forAgent, forNotice, managed, midTurn, NO_ULTRATHINK_LINE, noticeOf, parse, parseRecords, perMessage, prompt, report, reportData, sameModel, seedPrompt, short, SYSTEM, wholeRequest } from './route'
 import type { Step } from './route'
 
 const route = (phase: Route['phase'], effort: Route['effort'], extra: Partial<Route> = {}): Route => ({ phase, hard: false, effort, why: 'w', ...extra })
@@ -548,5 +548,17 @@ describe('the classifier text for a subagent\'s brief', () => {
     const text = briefPrompt('general-purpose', 'long brief', brief, null)
     expect(text).toContain('MARKER_NEAR')
     expect(text).not.toContain('MARKER_FAR')
+  })
+})
+
+describe('a level set for another AI tool', () => {
+  const line = /^A level set for another AI tool, model or agent to work at .* is that tool's setting: neither asked nor build\./
+  test('the classifier reads it as that tool\'s setting, first in the message prompt', () => {
+    expect(prompt('Make the docs job use Codex with GPT at high effort.', null, null, '')).toMatch(line)
+  })
+  test('subagent briefs, the seed and the system prompt do not carry it', () => {
+    expect(briefPrompt('general-purpose', 'docs job', 'Make the docs job use Codex with GPT at high effort.', null)).not.toContain('is that tool\'s setting')
+    expect(seedPrompt('Make the docs job use Codex with GPT at high effort.')).not.toContain('is that tool\'s setting')
+    expect(SYSTEM).not.toContain('Codex')
   })
 })

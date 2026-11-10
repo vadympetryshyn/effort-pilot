@@ -169,6 +169,9 @@ const NOTICE_LINE = 'This message is not from the person: it is an automatic not
 
 const MID_LINE = 'The person typed this message while the agent was still working on the work under way; it reaches the agent in the middle of that work. continues: true when it is about that work in any way (a question about it, a correction, a detail, a narrowing, an extra requirement for it, a reply to the agent). false only when it hands the agent a different task or asks about another subject.'
 
+/** asked and build are the agent's own levels: one set for another AI tool or agent is that tool's setting. */
+const OTHER_TOOL_LINE = 'A level set for another AI tool, model or agent to work at (Codex, GPT, Gemini, a subagent, a scheduled job: "let Codex write the articles with GPT on high effort") is that tool\'s setting: neither asked nor build.'
+
 /** Claude Code turns its `ultrathink` keyword off when CLAUDE_CODE_DISABLE_ULTRATHINK is set: the word asks for nothing then. */
 export const NO_ULTRATHINK_LINE = 'Claude Code\'s "ultrathink" keyword is turned off here: the word asks for no level.'
 /** An environment flag is on when set to anything but empty, "0" or "false". */
@@ -179,6 +182,7 @@ export const flagOn = (v: string | undefined) => {
 
 export function prompt(text: string, task: Task | null, previous: Route | null, lastAnswer: string, notice = false, midTurn = false, noUltrathink = false) {
   return [
+    OTHER_TOOL_LINE,
     task ? `The work under way (${task.phase}) began with the message:\n"""\n${task.text.slice(0, 600)}\n"""` : 'No work under way yet (first turn).',
     previous ? `Previous turn: ${previous.phase}.` : '',
     lastAnswer ? `The agent's last answer ended:\n"""\n${lastAnswer.slice(-1200)}\n"""` : '',

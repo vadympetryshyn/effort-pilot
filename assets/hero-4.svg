@@ -18,7 +18,7 @@
     <text x="32" y="98" class="you">&gt; let's plan a cache layer for the API</text>
     <text x="32" y="170"><tspan class="brand">⏵ effort  </tspan><tspan class="now" style="fill:#8250df">xhigh plan</tspan></text>
     <rect x="780" y="116" width="26" height="84" rx="4" fill="#8250df"/>
-    <text x="32" y="200" class="dim">asks for a plan · classified in 1.2s</text>
+    <text x="32" y="200" class="dim">asks for a plan · classified in 1.8s</text>
   </g>
   <g class="f f2 mono">
     <text x="32" y="98" class="you">&gt; why are cache hits so low? check it and rework</text>

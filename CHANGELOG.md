@@ -2,6 +2,10 @@
 
 All notable changes. Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions: [SemVer](https://semver.org/).
 
+## [1.8.2] — 2026-11-10
+
+- A level you name for another AI or tool to run at ("have Codex write the articles at high effort") is no longer taken as the effort you asked Claude to think at. It was read as your ask, and since an asked level holds for the whole piece of work, the plan it came with and the turns after it ran at that level. Such a level now counts as a setting, like a level named as a default or a rule; a level you name for Claude's own work holds as before.
+
 ## [1.8.1] — 2026-11-09
 
 - A turn the classifier gives no answer for (a timeout, an outage) runs at your own effort instead of the effort the turn before it picked: a hard request right after a light chat turn no longer goes at `low`. The status line says `effort: your own · the classifier gave no answer`, and the band shows your own effort with the same reason. It holds for that turn only; the next turn is classified as usual. Such a turn is not recorded. A turn in plan mode, and a message typed mid-turn, work as before; a notification that arrives during work under way still goes at that work's effort.

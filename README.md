@@ -18,11 +18,11 @@ Compared with leaving effort on `high` all the time, on the author's own turns:
 
 <img src="assets/why-3.svg" alt="Effort Pilot vs. always-on high: quick questions answered about twice as fast, plans thought through at xhigh, effort set every turn without /effort" width="820">
 
-- **Quick answers, about twice as fast.** A question or a chat turn runs at `low`: its median model time is about half of what it is at `high` (−50%, 90% range −20% … −67%).
+- **Quick answers, about twice as fast.** A question or a chat turn runs at `low`: its median model time is about half of what it is at `high` (−52%, 90% range −22% … −68%).
 - **Plans at `xhigh`.** Plans and plan mode get more thinking than `high`, where a wrong plan costs the most.
 - **Nothing to switch.** You never type `/effort`; the line above the prompt shows what it picked and why.
 
-<sub>≈ From the author's own sessions with `/effort-pilot report`. Not proven yet: fewer tokens overall, or fewer turns that fall short — so far the report shows no clear change in either. Every setup differs: measure yours.</sub>
+<sub>≈ From the author's own sessions with `/effort-pilot report`. Not proven yet: fewer tokens overall, or fewer turns that fall short. Every setup differs: measure yours.</sub>
 
 ## Install
 
@@ -57,7 +57,7 @@ restart. **Pause:** `/effort-pilot off`. **Remove:** `/plugin uninstall effort-p
 
 ## How it works
 
-Before each turn a small, fast model (Haiku, ≈ $0.0002 a turn) reads your message and picks the effort:
+Before each turn a small, fast model (Haiku, ≈ $0.0004 a turn) reads your message and picks the effort:
 
 | You… | Phase | Effort |
 |---|---|---|
