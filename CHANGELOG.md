@@ -2,6 +2,10 @@
 
 All notable changes. Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions: [SemVer](https://semver.org/).
 
+## [1.9.0] — 2026-11-10
+
+- Plans and plan mode now run at `high` by default instead of `xhigh`: the same depth as leaving effort on `high`, at less cost and time per planning turn. If you prefer the deeper plans, set `planEffort` to `xhigh` (or `max`) in `/config` → **effort-pilot**; a value you saved yourself is kept. Asking for a level in words ("plan it on xhigh") and `ultrathink` work as before.
+
 ## [1.8.2] — 2026-11-10
 
 - A level you name for another AI or tool to run at ("have Codex write the articles at high effort") is no longer taken as the effort you asked Claude to think at. It was read as your ask, and since an asked level holds for the whole piece of work, the plan it came with and the turns after it ran at that level. Such a level now counts as a setting, like a level named as a default or a rule; a level you name for Claude's own work holds as before.

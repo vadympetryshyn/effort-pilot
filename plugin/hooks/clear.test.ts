@@ -44,14 +44,14 @@ test('the first prompt of a session that began with no session.start (after /cle
   const seen = engine(on)
   await $.prompt.submit({ text: 'Plan a CSV export for the reports page.', origin: { kind: 'composer' } } as never)
   expect(seen.calls).toBe(1)
-  expect(seen.status).toEqual(['effort: xhigh plan'])
+  expect(seen.status).toEqual(['effort: high plan'])
 })
 
 test('its first request goes at the classified effort, not the session\'s own', async ($, on) => {
   const seen = engine(on)
   await $.prompt.submit({ text: 'Plan a CSV export for the reports page.', origin: { kind: 'composer' } } as never)
   await firstRequest($, 't1')
-  expect(seen.sent).toEqual(['xhigh'])
+  expect(seen.sent).toEqual(['high'])
 })
 
 test('a model the pilot leaves alone stays alone after /clear too', async ($, on) => {
@@ -114,7 +114,7 @@ test('after /clear, /effort-pilot on hands the effort back to the pilot', async 
   await $.prompt.submit({ text: 'Plan a CSV export for the reports page.', origin: { kind: 'composer' } } as never)
   await firstRequest($, 't1')
   expect(seen.calls).toBe(1)
-  expect(seen.sent).toEqual(['xhigh'])
+  expect(seen.sent).toEqual(['high'])
 })
 
 test('with the pilot on, the first prompt after /clear is routed', async ($, on) => {
@@ -124,7 +124,7 @@ test('with the pilot on, the first prompt after /clear is routed', async ($, on)
   await $.prompt.submit({ text: 'Plan a CSV export for the reports page.', origin: { kind: 'composer' } } as never)
   await firstRequest($, 't1')
   expect(seen.calls).toBe(2)
-  expect(seen.sent).toEqual(['xhigh'])
+  expect(seen.sent).toEqual(['high'])
 })
 
 test('two /clear in a row keep the person\'s choice too', async ($, on) => {

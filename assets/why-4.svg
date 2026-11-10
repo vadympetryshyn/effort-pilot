@@ -1,4 +1,4 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="900" height="380" viewBox="0 0 900 380" role="img" aria-label="Effort Pilot vs. always-on high: quick questions answered about twice as fast, plans thought through at xhigh, effort set every turn without /effort">
+<svg xmlns="http://www.w3.org/2000/svg" width="900" height="380" viewBox="0 0 900 380" role="img" aria-label="Effort Pilot vs. always-on high: quick questions answered about twice as fast, up to 10% fewer tokens, effort set every turn without /effort">
   <style>
     text { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif; fill: #1f2328; }
     .h { font-size: 20px; font-weight: 700; } .s { font-size: 13px; fill: #656d76; } .l { font-size: 16px; font-weight: 600; }
@@ -18,17 +18,17 @@
   <rect x="270" y="106" width="430" height="14" rx="7" fill="#d0d7de" class="bar"/>
   <rect x="270" y="128" width="215" height="14" rx="7" fill="#d97757" class="bar"/>
   <text x="868" y="134" text-anchor="end" class="v">≈2× faster</text>
-  <text x="32" y="200" class="l">Plans</text><text x="32" y="220" class="s">more thinking: effort level</text>
-  <rect x="270" y="184" width="300" height="14" rx="7" fill="#d0d7de" class="bar d2"/>
-  <rect x="270" y="206" width="430" height="14" rx="7" fill="#d97757" class="bar d2"/>
-  <text x="868" y="212" text-anchor="end" class="v mono">xhigh</text>
+  <text x="32" y="200" class="l">Tokens</text><text x="32" y="220" class="s">depends on your settings</text>
+  <rect x="270" y="184" width="430" height="14" rx="7" fill="#d0d7de" class="bar d2"/>
+  <rect x="270" y="206" width="387" height="14" rx="7" fill="#d97757" class="bar d2"/>
+  <text x="868" y="212" text-anchor="end" class="v">up to −10%</text>
   <text x="32" y="278" class="l">Effort set for you</text><text x="32" y="298" class="s">every turn, by its phase</text>
   <text x="270" y="282" class="p" style="fill:#656d76">always-on: one level, changed by hand</text>
   <text x="270" y="302" class="p" style="fill:#d97757">Effort Pilot: picked per turn, shown above the prompt</text>
   <text x="868" y="290" text-anchor="end" class="v">no <tspan class="mono">/effort</tspan></text>
   <line x1="32" y1="326" x2="868" y2="326" stroke="#eaeef2"/>
   <text x="32" y="357" class="s">Effort per turn:</text>
-  <rect x="140" y="340" width="115" height="26" rx="13" fill="#ede4ff"/><text x="152" y="358" class="p" style="fill:#6e40c9">plan → <tspan class="mono">xhigh</tspan></text>
+  <rect x="140" y="340" width="115" height="26" rx="13" fill="#ede4ff"/><text x="152" y="358" class="p" style="fill:#6e40c9">plan → <tspan class="mono">high</tspan></text>
   <rect x="265.2" y="340" width="161" height="26" rx="13" fill="#fff1e5"/><text x="277.2" y="358" class="p" style="fill:#bc4c00">investigate → <tspan class="mono">high</tspan></text>
   <rect x="436.0" y="340" width="130" height="26" rx="13" fill="#ddf4ff"/><text x="448.0" y="358" class="p" style="fill:#0969da">build → <tspan class="mono">medium</tspan></text>
   <rect x="576.4" y="340" width="168" height="26" rx="13" fill="#dafbe1"/><text x="588.4" y="358" class="p" style="fill:#1a7f37">question, git → <tspan class="mono">low</tspan></text>

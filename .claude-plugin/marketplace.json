@@ -10,7 +10,7 @@
     {
       "name": "effort-pilot",
       "source": "./plugin",
-      "description": "The right reasoning effort for every turn in Claude Code: plans xhigh, building medium, questions low."
+      "description": "The right reasoning effort for every turn in Claude Code: plans high, building medium, questions low."
     }
   ]
 }

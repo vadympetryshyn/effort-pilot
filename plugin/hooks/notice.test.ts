@@ -73,7 +73,7 @@ describe('a notification with work under way', () => {
     expect(seen.sent).toEqual(['high', 'high'])
   })
 
-  test('an agent\'s result during a plan, read as chat, goes at high', async ($, on) => {
+  test('an agent\'s result during a plan at xhigh, read as chat, goes at high', { options: { planEffort: 'xhigh' } }, async ($, on) => {
     const seen = await session($, on, [pick('plan'), pick('chat')])
     await turn($, 't1', 'Plan the CSV export of the reports page.', 'composer')
     await turn($, 't2', agentDone, 'task-notification')

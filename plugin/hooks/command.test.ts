@@ -86,9 +86,9 @@ describe('a skill or prompt command the person types', () => {
     await typeCommand($, 'tools:create-plan', 'design an export of the reports page to CSV, then build it')
     expect(seen.calls).toBe(1)
     expect(seen.prompts[0]).toContain('/tools:create-plan design an export of the reports page to CSV, then build it')
-    expect(seen.status).toEqual(['effort: xhigh plan'])
+    expect(seen.status).toEqual(['effort: high plan'])
     await turn($, 't1', '/tools:create-plan')
-    expect(seen.sent).toEqual(['xhigh'])
+    expect(seen.sent).toEqual(['high'])
   })
 
   test('with arguments is classified from the line alone: the arguments are the request', async ($, on) => {
@@ -106,7 +106,7 @@ describe('a skill or prompt command the person types', () => {
     expect(seen.prompts[0]).toContain('/deep-review')
     expect(seen.prompts[0]).toContain(description)
     expect(seen.prompts[0]).not.toContain('Read the diff.')
-    expect(seen.status).toEqual(['effort: xhigh plan'])
+    expect(seen.status).toEqual(['effort: high plan'])
   })
 
   test('with no arguments and no description, from the start of the prompt it expands to', async ($, on) => {
@@ -137,7 +137,7 @@ describe('a command that is not expanded for the model', () => {
     expect(seen.status).toEqual([])
   })
 
-  test('the turn it starts is no one\'s: the last turn\'s who does not label it, and the person\'s own effort stands', { options: { measure: true, controlShare: 0 } }, async ($, on) => {
+  test('the turn it starts is no one\'s: the last turn\'s who does not label it, and the person\'s own effort stands', { options: { measure: true, controlShare: 0, planEffort: 'xhigh' } }, async ($, on) => {
     const seen = await session($, on, name => (name === 'tools:create-plan' ? PLAIN : null))
     await typeCommand($, 'tools:create-plan', 'design an export of the reports page')
     await turn($, 't1', '/tools:create-plan')

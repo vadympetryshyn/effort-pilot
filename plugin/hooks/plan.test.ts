@@ -92,7 +92,7 @@ test('an approved plan adds one line naming the build effort, and the next reque
   await exit($)
   await step($, 1)
   expect(seen.added).toEqual(['Effort Pilot: reasoning effort is now medium, for carrying out the approved plan.'])
-  expect(seen.sent).toEqual(['xhigh', 'medium'])
+  expect(seen.sent).toEqual(['high', 'medium'])
 })
 
 test('the request after an approved plan counts as gone at the build effort, not the planning one', async ($, on) => {
@@ -101,7 +101,7 @@ test('the request after an approved plan counts as gone at the build effort, not
   await exit($)
   await step($, 1)
   await step($, 2)
-  expect(await stats($)).toContain('xhigh: 1 requests')
+  expect(await stats($)).toContain('high: 1 requests')
   expect(await stats($)).toContain('medium: 2 requests')
 })
 
@@ -148,8 +148,8 @@ test('plan mode entered mid-turn adds one line naming the plan effort, and the n
   await building($)
   await enter($)
   await step($, 1)
-  expect(seen.added).toEqual(['Effort Pilot: reasoning effort is now xhigh, for planning.'])
-  expect(seen.sent).toEqual(['medium', 'xhigh'])
+  expect(seen.added).toEqual(['Effort Pilot: reasoning effort is now high, for planning.'])
+  expect(seen.sent).toEqual(['medium', 'high'])
 })
 
 test('plan mode entered by a subagent adds nothing', async ($, on) => {
@@ -175,9 +175,9 @@ test('a prompt typed in plan mode with no effort asked records the plan effort a
   const seen = engine(on, PLAN)
   await planning($)
   await complete($)
-  expect(seen.status.at(-1)).toBe('effort: xhigh plan')
+  expect(seen.status.at(-1)).toBe('effort: high plan')
   const [r] = seen.records()
-  expect(r).toEqual(expect.objectContaining({ phase: 'plan', chosen: 'xhigh', sent: 'xhigh' }))
+  expect(r).toEqual(expect.objectContaining({ phase: 'plan', chosen: 'high', sent: 'high' }))
   expect(r?.asked).toBe(undefined)
 })
 
@@ -198,7 +198,7 @@ test('a turn that plans and has its plan approved records the plan effort as cho
   await step($, 1)
   await complete($)
   const [r] = seen.records()
-  expect(r).toEqual(expect.objectContaining({ phase: 'plan', chosen: 'xhigh', sent: 'xhigh' }))
+  expect(r).toEqual(expect.objectContaining({ phase: 'plan', chosen: 'high', sent: 'high' }))
   expect(r?.asked).toBe(undefined)
 })
 
@@ -217,6 +217,6 @@ test('a plan asked for outside plan mode is not marked as plan mode', { options:
   await step($, 0)
   await complete($)
   const [r] = seen.records()
-  expect(r).toEqual(expect.objectContaining({ phase: 'plan', sent: 'xhigh' }))
+  expect(r).toEqual(expect.objectContaining({ phase: 'plan', sent: 'high' }))
   expect(r?.planMode).toBe(undefined)
 })

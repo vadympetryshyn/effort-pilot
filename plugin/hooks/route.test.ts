@@ -8,13 +8,13 @@ const route = (phase: Route['phase'], effort: Route['effort'], extra: Partial<Ro
 const task = (phase: Task['phase'], effort: Task['effort']): Task => ({ phase, hard: false, effort, text: 'the work' })
 
 describe('effortFor', () => {
-  test('plan xhigh, analyze high, build medium or high when hard, talk low', () => {
-    expect(effortFor('plan', false)).toBe('xhigh')
+  test('plan high, analyze high, build medium or high when hard, talk low', () => {
+    expect(effortFor('plan', false)).toBe('high')
     expect(effortFor('analyze', false)).toBe('high')
     expect(effortFor('implement', false)).toBe('medium')
     expect(effortFor('fix', true)).toBe('high')
     expect(effortFor('chat', false)).toBe('low')
-    expect(effortFor('trivial', false, true)).toBe('xhigh')
+    expect(effortFor('trivial', false, true)).toBe('high')
   })
 })
 
@@ -279,21 +279,21 @@ describe('report', () => {
 
 describe('settings', () => {
   // The manifest's defaults, as /config stores them.
-  const manifest = { planEffort: 'xhigh', analyzeEffort: 'high', buildEffort: 'medium', hardBuildEffort: 'high', talkEffort: 'low', managedModels: 'opus,fable', headless: false, measure: false, controlShare: 30 }
-  test('the defaults are the table: plan xhigh, analyze high, build medium, hard build high, talk low', () => {
+  const manifest = { planEffort: 'high', analyzeEffort: 'high', buildEffort: 'medium', hardBuildEffort: 'high', talkEffort: 'low', managedModels: 'opus,fable', headless: false, measure: false, controlShare: 30 }
+  test('the defaults are the table: plan high, analyze high, build medium, hard build high, talk low', () => {
     expect(configFrom(manifest)).toEqual(DEFAULTS)
     expect(configFrom({})).toEqual(DEFAULTS)
     const c = configFrom(manifest)
-    expect(effortFor('plan', false, false, c)).toBe('xhigh')
+    expect(effortFor('plan', false, false, c)).toBe('high')
     expect(effortFor('analyze', false, false, c)).toBe('high')
     expect(effortFor('implement', false, false, c)).toBe('medium')
     expect(effortFor('fix', true, false, c)).toBe('high')
     expect(effortFor('chat', false, false, c)).toBe('low')
     expect(effortFor('trivial', false, false, c)).toBe('low')
-    expect(effortFor('chat', false, true, c)).toBe('xhigh')
+    expect(effortFor('chat', false, true, c)).toBe('high')
   })
   test('a value outside the levels falls back to its default', () => {
-    expect(configFrom({ planEffort: 'huge', buildEffort: 3 }).plan).toBe('xhigh')
+    expect(configFrom({ planEffort: 'huge', buildEffort: 3 }).plan).toBe('high')
     expect(configFrom({ planEffort: 'huge', buildEffort: 3 }).build).toBe('medium')
   })
   test('a custom table moves every rule that reads it', () => {
@@ -519,9 +519,9 @@ describe('two reads of a level asked', () => {
 
   test('the build level is lowered the same way', () => {
     expect(agreed(read({ phase: 'plan', build: 'max' }), read({ phase: 'plan', build: 'high' })).build).toBe('high')
-    const dropped = agreed(read({ phase: 'plan', build: 'high' }), read({ phase: 'plan' }))
+    const dropped = agreed(read({ phase: 'plan', build: 'low' }), read({ phase: 'plan' }))
     expect(dropped.build).toBe(undefined)
-    expect(dropped.effort).toBe('xhigh')
+    expect(dropped.effort).toBe('high')
   })
 
   test('a level taken back only when both reads take it back', () => {
