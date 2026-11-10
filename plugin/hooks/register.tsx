@@ -1,9 +1,9 @@
 import { atom, read, update } from 'claude-code'
-import type { EngineInterface, Register } from 'claude-code'
+import type { EngineInterface, Register, TurnStepResult } from 'claude-code'
 
 import type { AgentRun, Config, Effort, Mode, Route, Spend, Tally, Task, TurnRecord, Who } from '../types'
 import {
-  afterPlan, agreed, asideText, briefPrompt, cacheRewritten, commandText, unasked, carry, configFrom, DEFAULTS, EFFORTS, flagOn, forAgent, forNotice, fromBrief, listedAgent, managed as managedBy,
+  afterPlan, agreed, asideText, isModel, briefPrompt, cacheRewritten, commandText, unasked, carry, configFrom, DEFAULTS, EFFORTS, flagOn, forAgent, forNotice, fromBrief, listedAgent, managed as managedBy, versionOf,
   midTurn, noticeOf, parse, parseRecords, prompt, promptOf, recentOf, report, reportData, sameModel, seedPrompt, SHORT, shortModel, SYSTEM, wholeRequest,
 } from './route'
 import type { Aside, Step } from './route'
@@ -73,6 +73,7 @@ const blind = atom({ plugin: 'effort-pilot', key: 'blind' } as const, false)
 const acc = atom({ plugin: 'effort-pilot', key: 'acc' } as const, EMPTY, { shape: 'acc-3' })
 // The report the pane draws, as read when it opened or was last refreshed.
 const board = atom({ plugin: 'effort-pilot', key: 'board' } as const, null, { shape: 'board-1' })
+const wanted = atom({ plugin: 'effort-pilot', key: 'wanted' } as const, null, { shape: 'wanted-1' })
 
 /** Plan mode's effort: the plan effort, or the one the person asked for the planning. */
 async function planLevel($: EngineInterface): Promise<Effort> {
@@ -91,6 +92,18 @@ async function planModel($: EngineInterface, name: string): Promise<string | und
   return config.planModel
 }
 /**
+ * The model the main loop's next request goes on, where not the session's own (name): in plan mode a model the person
+ * asked for the plan, else the plan-mode model; otherwise the model the person asked for. The person's words beat the
+ * setting. Undefined: the session's own model.
+ */
+async function altModel($: EngineInterface, name: string): Promise<string | undefined> {
+  const w = (await read($, mode)) === 'auto' ? await read($, wanted) : null
+  const pick = w?.plan && (await read($, planMode)) ? w.model : ((await planModel($, name)) ?? w?.model)
+  return pick && !isModel(pick, name) ? pick : undefined
+}
+/** Effort is one setting of the whole request on this model: a switch there would rewrite the prompt cache. */
+const wholeOn = (m: string) => rewrites.has(m) || wholeRequest(m, firstParty !== false, sessionEffort) !== null
+/**
  * The main loop's model, as session.start, /model or the last request set it. A session that began with no
  * session.start (a /clear: the same process goes on under a new session id, its state empty) asks the engine once.
  */
@@ -104,26 +117,22 @@ async function modelOf($: EngineInterface) {
 // The person's say over the pilot (off or shadow, or an effort set by hand with /effort), carried over a /clear: the
 // new conversation starts with empty state and no session.start, while Claude Code keeps the effort they set. A new
 // process starts at auto.
-let cleared: { from: string; mode: Mode; pin: Effort | null } | null = null
-/** In the conversation a /clear started: take back the person's mode and pin from the one it ended. */
+// A model the person asked for is carried too: it holds for the rest of the session's main loop.
+let cleared: { from: string; mode: Mode; pin: Effort | null; wanted: { model: string; effort: Effort | null; plan: boolean } | null } | null = null
+/** In the conversation a /clear started: take back the person's mode, pin and asked model from the one it ended. */
 async function resume($: EngineInterface) {
   if (!cleared || (await $.session.id()) === cleared.from) return
-  const { mode: m, pin: p } = cleared
+  const { mode: m, pin: p, wanted: w } = cleared
   cleared = null
   await update($, mode, () => m)
   await update($, pin, () => p)
+  await update($, wanted, () => w)
 }
 /** Publish the effort the next request goes at, or null when the person's own setting stands. */
 async function publish($: EngineInterface) {
-  const [m, p, r, a, name] = [await read($, mode), await read($, pin), await read($, route), await read($, arm), await read($, model)]
-  const alt = await planModel($, name)
-  const value = m !== 'auto' || !managed(name) ? null
-    : p ? { effort: p, source: 'pinned' as const }
-    // On a plan-mode model whose effort is one setting of the whole request, the person's own effort goes.
-    : a === 'auto' && (await read($, planMode)) ? (alt && !managed(alt) ? null : { effort: await planLevel($), source: 'auto' as const })
-    : r && a === 'auto' && !(await read($, blind)) ? { effort: r.effort, source: 'auto' as const }
-    : null
-  await update($, effective, () => value)
+  const effort = await aim($, await read($, model), true)
+  const p = await read($, pin)
+  await update($, effective, () => (effort ? { effort, source: p ? 'pinned' as const : 'auto' as const } : null))
 }
 /**
  * Keep the engine's plan-mode fact. Plan mode is the plan effort, whole: entering it makes the work a plan (the band shows it),
@@ -131,8 +140,8 @@ async function publish($: EngineInterface) {
  */
 async function setPlan($: EngineInterface, isPlan: boolean) {
   if ((await read($, planMode)) === isPlan) return
-  // Leaving plan mode while its requests went on the plan-mode model: the status line must stop naming that model.
-  const left = isPlan ? undefined : await planModel($, await read($, model))
+  // Leaving plan mode while its requests went on another model: the status line must say where they go now.
+  const left = isPlan ? undefined : await altModel($, await read($, model))
   await update($, planMode, () => isPlan)
   const r = await read($, route)
   if (left && r) $.ui.status(await statusOf($, r))
@@ -144,6 +153,7 @@ async function setPlan($: EngineInterface, isPlan: boolean) {
     await update($, task, () => ({
       phase: 'plan' as const, hard: false, effort, text: t?.text ?? '',
       ...(lastPick?.asked ? { asked: lastPick.asked } : {}), ...(lastPick?.build ? { build: lastPick.build } : {}),
+      ...(lastPick?.buildModel ? { buildModel: lastPick.buildModel } : {}),
     }))
     await update($, arm, () => 'auto' as const)
     // Through settle, so the status line, the trail and the band show it: the classic hook that reports plan mode
@@ -185,6 +195,9 @@ async function begin($: EngineInterface, text: string, kind: string, handBack = 
     turnPick = said
     await asks($, said)
     await publish($)
+    // A model named for the planning takes over now; one for the build waits for the plan (asks).
+    if (!notice && said) await wantModel($, said, { plan: true, build: false })
+    await buildNote($)
     return
   }
   if (!notice && (await briefed($, text))) return
@@ -209,6 +222,13 @@ async function begin($: EngineInterface, text: string, kind: string, handBack = 
     $.ui.status('effort: your own · the classifier gave no answer')
   }
   await publish($)
+  // The person's own message: a model it asks for, or the one asked for the build once building starts.
+  if (carried && pick) {
+    const r = carried.route
+    const build = work?.phase === 'plan' && (r.phase === 'implement' || r.phase === 'fix') && !pick.model
+    await wantModel($, r, { plan: r.phase === 'plan', build })
+    await buildNote($)
+  }
 }
 
 /**
@@ -251,14 +271,72 @@ async function briefed($: EngineInterface, text: string) {
 
 /** In plan mode: an effort the person asks for the planning takes effect, one for the build waits for the plan. */
 async function asks($: EngineInterface, said: Route | null) {
-  if (!said?.asked && !said?.build) return
+  if (!said?.asked && !said?.build && !said?.buildModel) return
   const t = await read($, task)
   if (!t) return
-  await update($, task, () => ({ ...t, ...(said.asked ? { asked: said.asked, effort: said.asked } : {}), ...(said.build ? { build: said.build } : {}) }))
+  await update($, task, () => ({
+    ...t, ...(said.asked ? { asked: said.asked, effort: said.asked } : {}), ...(said.build ? { build: said.build } : {}),
+    ...(said.buildModel ? { buildModel: said.buildModel } : {}),
+  }))
+  if (!said.asked && !said.build) return
   const r = await read($, route)
   const level = said.asked ?? r?.effort ?? config.plan
   if (said.asked) turnPlan = { effort: said.asked, asked: true }
   await settle($, { phase: 'plan', hard: false, effort: level, asked: said.asked, why: `plan mode: ${level}${said.asked ? ', as you asked' : ''}${(said.build ?? t.build) ? ` · then ${said.build ?? t.build}, as you asked` : ''}` })
+}
+
+/**
+ * A model the person asked for (r.model: in their message, or for the build once building starts) takes over the
+ * session's main loop from the next request: until another ask, their own /model, or /effort-pilot off. A model asked
+ * for the planning (plan) wins over the plan-mode model until building starts. Asking for the session's own model
+ * hands the loop back to it. An effort asked in words with no model moves the effort held on an unmanaged asked model.
+ * The line it leaves (told) goes beside the prompt for the model and as a notice for the person.
+ */
+async function wantModel($: EngineInterface, r: Route, how: { plan: boolean; build: boolean }) {
+  const w = await read($, wanted)
+  if (!r.model) {
+    // Building starts with no model asked for it: a model asked for the planning holds on, as any ask does.
+    if (how.build && w?.plan) await update($, wanted, () => ({ ...w, plan: false }))
+    if (w && !managedBy(w.model, config) && (r.asked || r.release)) await update($, wanted, () => ({ ...w, effort: r.asked ?? null }))
+    return
+  }
+  const name = await read($, model)
+  const own = isModel(r.model, name)
+  const plan = how.plan && !how.build
+  // On a model the pilot does not manage, the effort named with the switch is held for as long as the model is.
+  await update($, wanted, () => (own && !plan ? null : { model: r.model!, effort: r.asked ?? null, plan }))
+  await publish($)
+  const effort = await aim($, name, true)
+  const at = effort ? ` at ${effort}` : ' at your own effort'
+  const family = versionOf(name)?.family ?? name
+  told = how.build ? `Effort Pilot: carrying out the plan on ${r.model}${at}, as you asked.`
+    : plan ? `Effort Pilot: planning on ${own ? `the session's model (${name})` : r.model}${at}, as you asked.`
+    : own ? `Effort Pilot: ${w ? 'back' : 'already'} on the session's model (${name})${at}.`
+    : `Effort Pilot: now on ${r.model}${at}, for this session; say "back to ${family}" or use /model to change.`
+  $.ui.status(await statusOf($, (await read($, route)) ?? r))
+}
+// The line a model switch leaves, until the prompt it came with takes it (prompt.submit) or it is shown (tell).
+let told: string | null = null
+// The build model the last line named, so a plan's later turns do not repeat it.
+let toldBuild: string | null = null
+/**
+ * A plan holds a model asked for carrying it out: say once that the pilot switches to it when building starts, so the
+ * model does not read "implement on sonnet" as work of its own (a subagent on that model).
+ */
+async function buildNote($: EngineInterface) {
+  const t = await read($, task)
+  if (t?.phase !== 'plan' || !t.buildModel || toldBuild === t.buildModel) return
+  toldBuild = t.buildModel
+  const line = `Effort Pilot: the plan will be carried out on ${t.buildModel}${t.build ? ` at ${t.build}` : ''}, as you asked; the pilot switches to it when building starts.`
+  told = told ? `${told} ${line}` : line
+}
+/** Shows the line a model switch left as a notice the person sees in the transcript (the model does not read it). */
+async function tell($: EngineInterface) {
+  const text = told
+  told = null
+  if (!text) return
+  await $.session.append({ message: { type: 'system', content: [{ type: 'text', text }] } })
+    .catch(err => $.ui.log(`effort-pilot: ${text} (${String(err)})`))
 }
 
 // Measuring: a share of turns is left at the person's own effort (control), picked at random per turn; effort costs
@@ -403,7 +481,15 @@ async function delivered($: EngineInterface, kind: string, text: string) {
   if (await read($, planMode)) {
     await asks($, pick)
     await publish($)
+    if (pick) await wantModel($, pick, { plan: true, build: false })
+    await buildNote($)
+    await tell($)
     return
+  }
+  // A model asked for mid-turn takes over from the next request.
+  if (pick?.model) {
+    await wantModel($, pick, { plan: pick.phase === 'plan', build: false })
+    await tell($)
   }
   // A control turn stays at the person's own effort unless they name one now.
   if ((await read($, arm)) !== 'auto' && !pick?.asked) return
@@ -444,12 +530,16 @@ async function statusOf($: EngineInterface, next: Route) {
   const m = await read($, mode)
   // A control turn runs at the person's own effort: the pick is only what the pilot would have sent.
   const control = m === 'auto' && (await read($, pin)) === null && (await read($, arm)) === 'control'
-  // A plan in plan mode on the plan-mode model names it; where effort is one setting of its whole request, the person's
-  // own effort goes on it.
-  const alt = next.phase === 'plan' ? await planModel($, await read($, model)) : undefined
+  // Requests on another model than the session's (plan mode's, or one the person asked for) name it. On one the pilot
+  // does not steer, the effort is the one asked with it, or the person's own.
+  const name = await read($, model)
+  const alt = await altModel($, name)
+  if (!control && alt && !managed(alt)) {
+    const held = await aim($, name, true)
+    return `effort: ${held ? `${SHORT[held]} · you asked` : 'your own'}${next.phase === 'plan' ? ' · plan' : ''} · ${shortModel(alt)}`
+  }
   return control
     ? `effort: your own (control turn) · Effort Pilot would pick ${SHORT[next.effort]} · ${next.phase}`
-    : alt && !managed(alt) ? `effort: your own · plan · ${shortModel(alt)}`
     : `effort${m === 'auto' ? '' : ` (${m})`}: ${label(next)}${alt ? ` · ${shortModel(alt)}` : ''}`
 }
 
@@ -477,17 +567,23 @@ async function release($: EngineInterface) {
 }
 
 /** The effort the pilot sets on the main loop's next request on this model; undefined where the person's own stands. */
-async function aim($: EngineInterface, name: string): Promise<Effort | undefined> {
+async function aim($: EngineInterface, name: string, any = false): Promise<Effort | undefined> {
   const p = await read($, pin)
-  const live = (await read($, mode)) === 'auto' && managed(name) && (await read($, who)) !== null
+  const m = await read($, mode)
+  // The model the request goes on: the session's (name), plan mode's, or one the person asked for.
+  const target = (await altModel($, name)) ?? name
+  if (target !== name && !managedBy(target, config)) {
+    // A model the person asked for that the pilot does not manage: the effort named with it, for as long as it holds;
+    // none (the person's own) where effort is one setting of the whole request.
+    const w = await read($, wanted)
+    return m === 'auto' && p === null && w?.effort && w.model === target && !wholeOn(target) ? w.effort : undefined
+  }
+  // A model the settings name where effort is one setting of the whole request (aside): the person's own effort goes.
+  const live = m === 'auto' && managed(target) && (any || (await read($, who)) !== null)
     && (p !== null || (await read($, arm)) === 'auto')
   if (!live) return undefined
   if (p !== null) return p
-  if (await read($, planMode)) {
-    // A plan-mode model where effort is one setting of the whole request: the person's own effort goes on it.
-    const alt = await planModel($, name)
-    return alt && !managed(alt) ? undefined : await planLevel($)
-  }
+  if (await read($, planMode)) return await planLevel($)
   return (await read($, blind)) ? undefined : (await read($, route))?.effort
 }
 
@@ -497,16 +593,16 @@ async function aim($: EngineInterface, name: string): Promise<Effort | undefined
  * effort. Only when that request goes at another effort than the one in effect. A context line does not do it: it
  * goes as a system message, not new input.
  */
-async function applyNow($: EngineInterface, purpose: string) {
+async function applyNow($: EngineInterface, purpose: string, line: string | null = null) {
   const name = await read($, model)
-  const [w, next, alt] = [await read($, wire), await aim($, name), await planModel($, name)]
-  // The plan-mode model is entered or left: the line says so, and the request after it goes on that model.
+  const [w, next, alt] = [await read($, wire), await aim($, name), await altModel($, name)]
+  // Another model is entered or left: the line says so, and the request after it goes on that model.
   const moves = lastModel !== null && !sameModel(lastModel, alt ?? name)
-  if (!moves && (!w || !next || next === w)) return
+  if (!line && !moves && (!w || !next || next === w)) return
   const where = !moves ? '' : alt ? `on ${alt}` : `back on the session's model (${name})`
-  const text = next
+  const text = line ?? (next
     ? `Effort Pilot: reasoning effort is now ${next}${where ? `, ${where}` : ''}, ${purpose}.`
-    : `Effort Pilot: ${alt ? `the model is now ${alt}` : where}, ${purpose}.`
+    : `Effort Pilot: ${alt ? `the model is now ${alt}` : where}, ${purpose}.`)
   // Never throws: the tool has already run, and the hook must hand back its result.
   const added = await $.session.append({ message: { type: 'user', content: [{ type: 'text', text }] } }).catch(err => ({ deny: String(err) }))
   if (added.deny) $.ui.log(`effort-pilot: ${next ?? alt ?? name} waits for the next new input: ${added.deny}`)
@@ -526,18 +622,32 @@ async function rewrote($: EngineInterface, name: string, prev: Step, cur: Step) 
 }
 
 /** An approved plan moves the work from planning to building: the build effort, not the planning one. */
-async function approved($: EngineInterface, plan: string) {
-  if ((await read($, mode)) !== 'auto' || (await read($, pin)) !== null || !managed(await modelOf($))) return
+async function approved($: EngineInterface, plan: string): Promise<string | null> {
+  if ((await read($, mode)) !== 'auto' || (await read($, pin)) !== null || !managed(await modelOf($))) return null
   const next = afterPlan(plan, await read($, task), config)
   await update($, task, () => next.task)
   await settle($, next.route)
+  // A model asked for the build takes over now; the line that says so is the one added after the approval.
+  await wantModel($, next.route, { plan: false, build: true })
+  const line = told
+  told = null
+  return line
 }
 
 /** Plan mode on the band: its effort, and the plan-mode model where its requests go on one. */
 async function planBand($: EngineInterface, name: string) {
-  const alt = await planModel($, name)
+  const alt = await altModel($, name)
   if (!alt) return SHORT[await planLevel($)]
-  return `${managed(alt) ? SHORT[await planLevel($)] : 'your own effort'} on ${shortModel(alt)}`
+  const effort = await aim($, name, true)
+  return `${effort ? SHORT[effort] : 'your own effort'} on ${shortModel(alt)}`
+}
+
+/** Out of plan mode on the band: the model the person asked for, where requests go on one; else nothing. */
+async function modelBand($: EngineInterface, name: string) {
+  const alt = await altModel($, name)
+  if (!alt) return ''
+  const held = managed(alt) ? null : await aim($, name, true)
+  return `on ${shortModel(alt)}${managed(alt) ? '' : held ? ` at ${SHORT[held]}` : ' at your own effort'}, as you asked · `
 }
 
 /** How a route reads on the band, the status line and a toast: an effort the person asked for says so, not a phase. */
@@ -627,6 +737,8 @@ let sessionModel: string | undefined
 let lastStep: Step | null = null
 // The model the main loop's last request went on (the plan-mode model, or the session's): null before the first.
 let lastModel: string | null = null
+// A model the person asked for whose request got no response in the running turn: dropped if the turn ends on an error.
+let refused: string | null = null
 // Measuring's one baseline is high: a control turn only where the person's own effort is high (unknown before the
 // session's first request: taken as high) and the pilot would send another.
 const differs = (effort: Effort) => (sessionEffort === undefined || sessionEffort === 'high') && effort !== 'high'
@@ -730,7 +842,7 @@ export const register: Register = (on, options) => {
   on('session.end', async ($, e, next) => {
     // A conversation cleared before anything ran in it still holds the choice carried into it.
     await resume($)
-    if (e.reason === 'clear') cleared = { from: e.sessionId, mode: await read($, mode), pin: await read($, pin) }
+    if (e.reason === 'clear') cleared = { from: e.sessionId, mode: await read($, mode), pin: await read($, pin), wanted: await read($, wanted) }
     return next(e)
   }).catch(($, e, next) => next(e))
 
@@ -744,7 +856,18 @@ export const register: Register = (on, options) => {
       await update($, mode, () => 'auto' as Mode)
       await update($, pin, () => null)
       await release($)
-    } else if (verb === 'shadow' || verb === 'off') await update($, mode, () => verb as Mode)
+    } else if (verb === 'shadow' || verb === 'off') {
+      await update($, mode, () => verb as Mode)
+      // Off hands the main loop back to the session's own model and effort: the status line stops naming the pilot's
+      // pick and model. Shadow shows what it would pick, marked so.
+      if (verb === 'off') {
+        await update($, wanted, () => null)
+        $.ui.status(undefined)
+      } else {
+        const r = await read($, route)
+        if (r) $.ui.status(await statusOf($, r))
+      }
+    }
     else if (verb === 'classify') {
       const r = await classify($, args.slice('classify'.length).trim(), false)
       return { text: r ? describe(r) : 'no answer from the classifier' }
@@ -781,7 +904,8 @@ export const register: Register = (on, options) => {
     const why = aside(name)
     const off = why ? ` · ${asideText(name, why)}` : ''
     const measured = measuring ? ` · measuring, ${Math.round(controlShare * 100)}% control turns` : ''
-    const planNote = config.planModel ? ` · plan mode on ${config.planModel}` : ''
+    const w = await read($, wanted)
+    const planNote = `${w ? ` · on ${w.model}${w.effort ? ` at ${w.effort}` : ''}, as you asked` : ''}${config.planModel ? ` · plan mode on ${config.planModel}` : ''}`
     return { text: `Effort Pilot: ${await read($, mode)}${p ? `, pinned ${p}` : ''}${off}${planNote}${measured}` }
   })
 
@@ -803,8 +927,11 @@ export const register: Register = (on, options) => {
   }).catch(($, e, next) => next(e))
 
   on('command.run', { command: 'model' }, async ($, e, next) => {
+    const before = await read($, model)
     const result = await next(e)
     const name = (await $.session.model()) ?? ''
+    // The person's own pick of the session's model ends a model asked for in words.
+    if (!sameModel(before, name)) await update($, wanted, () => null)
     await update($, model, () => name)
     await publish($)
     return result
@@ -841,7 +968,12 @@ export const register: Register = (on, options) => {
       return result
     }
     await begin($, e.text, e.origin.kind, !!e.isMeta)
-    return next(e)
+    // A model switch this prompt asked for: the model reads that it is done (else it may say it cannot switch), and the
+    // person sees the line once the prompt is in.
+    const line = told
+    const result = await next(line ? { ...e, context: [...(e.context ?? []), `The Effort Pilot plugin switches the model as the person asked; nothing to do for it. ${line}`] } : e)
+    await tell($)
+    return result
   }).catch(($, e, next) => next(e))
 
   // The engine expands the skill or prompt command the person typed: a turn of model work on their request, routed
@@ -852,6 +984,7 @@ export const register: Register = (on, options) => {
     if (t && e.skill === t.name) {
       typed = null
       await begin($, commandText(t.text, t.args, e.frontmatter?.description, e.text), t.kind).catch(err => $.ui.log(`effort-pilot: could not route the command: ${String(err)}`))
+      await tell($)
     }
     return next(e)
   }).catch(($, e, next) => next(e))
@@ -871,10 +1004,11 @@ export const register: Register = (on, options) => {
   on('tool.call', { tool: 'ExitPlanMode' }, async ($, e, next) => {
     const result = await next(e)
     if (e.agentId === undefined && !result.deny && !result.isError) {
-      await approved($, result.text ?? '')
+      // Out of plan mode first, so what the approval sets (the build's effort and model) is read off plan mode.
       await setPlan($, false)
+      const line = await approved($, result.text ?? '')
       await publish($)
-      await applyNow($, 'for carrying out the approved plan')
+      await applyNow($, 'for carrying out the approved plan', line)
     }
     return result
   }).catch(($, e, next) => next(e))
@@ -977,7 +1111,10 @@ export const register: Register = (on, options) => {
       queued = null
       waiting = []
       await unrouted($)
-      if (!submitted && kind && e.text.trim()) await begin($, e.text, kind)
+      if (!submitted && kind && e.text.trim()) {
+        await begin($, e.text, kind)
+        await tell($)
+      }
       submitted = false
       const at = await $.clock.now()
       await update($, acc, () => ({ ...EMPTY, at }))
@@ -1034,7 +1171,10 @@ export const register: Register = (on, options) => {
     await credential($)
     sessionEffort = e.effort ?? sessionEffort
     sessionModel = e.model
-    if ((await read($, model)) !== e.model) {
+    const known = await read($, model)
+    if (known !== e.model) {
+      // The session's own model changed (the person's /model, a fallback): a model asked for in words ends with it.
+      if (known && !sameModel(known, e.model)) await update($, wanted, () => null)
       await update($, model, () => e.model)
       await publish($)
     }
@@ -1052,12 +1192,21 @@ export const register: Register = (on, options) => {
     }
     // A number is the person's own effort: it goes as they set it.
     const effort = typeof e.effort === 'string' ? await aim($, e.model) : undefined
-    // In plan mode, the plan-mode model where one is set: e.model stays the session's own on every step.
-    const alt = await planModel($, e.model)
+    // Plan mode's model, or one the person asked for: e.model stays the session's own on every step.
+    const alt = await altModel($, e.model)
     const goes = alt ?? e.model
+    const asked = alt !== undefined && (await read($, wanted))?.model === alt
     lastModel = goes
     const began = await $.clock.now()
-    const result = yield* next(effort || alt ? { ...e, ...(alt ? { model: alt } : {}), ...(effort ? { effort } : {}) } : e)
+    let result: TurnStepResult
+    try {
+      result = yield* next(effort || alt ? { ...e, ...(alt ? { model: alt } : {}), ...(effort ? { effort } : {}) } : e)
+    } catch (err) {
+      if (asked) refused = alt!
+      throw err
+    }
+    // No response at all on a model the person asked for: if the turn then ends on an error, the API refused it.
+    if (asked && !result?.usage && result?.stopReason == null) refused = alt!
     const took = (await $.clock.now()) - began
     const base = level(e.effort)
     // What actually went: the asked effort on a step with new input, else the one already in effect.
@@ -1072,7 +1221,7 @@ export const register: Register = (on, options) => {
       // A conversation's first request: none seen yet in this process, or the conversation began again (a /clear).
       lastStep = { ...cur, at: began + took, first: !prev || e.messageCount < prev.messageCount }
       if (managed(goes) && cacheRewritten(prev, { ...cur, input })) await rewrote($, goes, prev!, cur)
-      await update($, acc, a => ({ ...tallied(a, sent, base, u, took), ...(alt ? { model: alt } : {}) }))
+      await update($, acc, a => ({ ...tallied(a, sent, base, u, took), ...(alt ? { model: alt } : {}), ...(asked ? { askedModel: true as const } : {}) }))
     }
     if (sent && u && managed(e.model)) {
       await update($, tally, t => ({ ...t, [sent]: { steps: (t[sent]?.steps ?? 0) + 1, out: (t[sent]?.out ?? 0) + u.output_tokens } }))
@@ -1092,6 +1241,18 @@ export const register: Register = (on, options) => {
       return result
     }
     mainTurn = null
+    // A model the person asked for that the API refused (unknown, not available to them): back to the session's own,
+    // once; the next turn goes there.
+    const gone = refused
+    refused = null
+    if (gone && e.reason === 'error' && (await read($, wanted))?.model === gone) {
+      await update($, wanted, () => null)
+      await publish($)
+      const name = await read($, model)
+      told = `Effort Pilot: ${gone} is not available here; back on the session's model (${name}).`
+      $.ui.status(`effort: back on ${shortModel(name)} · ${gone} is not available`)
+      await tell($)
+    }
     const faulted = lastPick?.faulted
     const own = turnPick
     const aimed = turnPlan
@@ -1113,7 +1274,7 @@ export const register: Register = (on, options) => {
         phase: plan ? 'plan' : r.phase, hard: r.hard, chosen: plan ? (aimed?.effort ?? config.plan) : r.effort,
         base: a.base, sent: a.sent, model: a.model ?? m, steps: a.steps, out: a.out, input: a.input,
         cacheRead: a.cacheRead, cacheWrite: a.cacheWrite, ms: Math.round((await $.clock.now()) - a.at), reason: e.reason, cls,
-        who: w, ...(sessionAgent() ? { agent: sessionAgent(), via: 'session' as const } : {}), trace: a.trace, gen: Math.round(a.gen), ...(faulted ? { faulted: true } : {}), ...(r.asked || (plan && aimed?.asked) ? { asked: true as const } : {}),
+        who: w, ...(sessionAgent() ? { agent: sessionAgent(), via: 'session' as const } : {}), trace: a.trace, gen: Math.round(a.gen), ...(faulted ? { faulted: true } : {}), ...(r.asked || (plan && aimed?.asked) || a.askedModel ? { asked: true as const } : {}),
         ...picked(own, r), ...(plan ? { planMode: true as const } : {}),
       }).catch(err => $.ui.log(`effort-pilot: could not keep the turn: ${String(err)}`))
     }
@@ -1201,7 +1362,7 @@ export const register: Register = (on, options) => {
             </Text>
           ))}
         </Box>
-        <Text dimColor>{(await read($, planMode)) ? `plan mode → ${await planBand($, current)} · ` : ''}{w === 'notification' ? 'notification · ' : ''}{r.why}{ms ? ` · classified in ${(ms / 1000).toFixed(1)}s` : ''}</Text>
+        <Text dimColor>{(await read($, planMode)) ? `plan mode → ${await planBand($, current)} · ` : await modelBand($, current)}{w === 'notification' ? 'notification · ' : ''}{r.why}{ms ? ` · classified in ${(ms / 1000).toFixed(1)}s` : ''}</Text>
         {shown.length ? (
           <Text dimColor>
             subagents: {shown.map(a => `${a.type} «${a.description.slice(0, 28)}» ${agentWord(a)}${a.status === 'done' ? ' ✓' : ''}`).join(' · ')}

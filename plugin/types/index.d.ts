@@ -30,6 +30,13 @@ export type Route = {
   asked?: Effort
   /** The effort the person asked for carrying out a plan, once it is made. */
   build?: Effort
+  /**
+   * The model the person asked to work on from now (an alias such as `sonnet`, or a full id): a switch of the session's
+   * main loop, from this message on. After the rule, also the model asked for carrying out a plan, once building starts.
+   */
+  model?: string
+  /** The model the person asked for carrying out a plan, once it is made. */
+  buildModel?: string
   /** The person takes back an effort they asked for: the rule chooses again. */
   release?: boolean
   /** The message says the agent's last work fell short: wrong, broken, incomplete or misunderstood. */
@@ -46,6 +53,8 @@ export type Task = {
   asked?: Effort
   /** An effort the person asked for carrying out the plan this work makes. */
   build?: Effort
+  /** A model the person asked for carrying out the plan this work makes. */
+  buildModel?: string
 }
 
 /** One finished main-loop turn, as measuring keeps it. arm control: classified, but the effort was left as it was. */
@@ -210,7 +219,13 @@ declare module 'claude-code' {
       /** The report the pane draws, as read when it opened or was last refreshed, and where the records are; null before. */
       board: Shaped<{ data: ReportData; where: string } | null>
       /** This main-loop turn's requests so far; model: the plan-mode model, once a request of the turn went on it. */
-      acc: Shaped<{ steps: number; out: number; input: number; cacheRead: number; cacheWrite: number; gen: number; base: Effort | null; sent: Effort | null; at: number; trace: [Effort | null, number][]; model?: string }>
+      acc: Shaped<{ steps: number; out: number; input: number; cacheRead: number; cacheWrite: number; gen: number; base: Effort | null; sent: Effort | null; at: number; trace: [Effort | null, number][]; model?: string; askedModel?: true }>
+      /**
+       * The model the person asked to work on, for the rest of the session's main loop: an alias or a full id; the effort
+       * named with it (held on a model the pilot does not manage); plan: asked for making a plan, so it wins over the
+       * plan-mode model until building starts. Null: the session's own model.
+       */
+      wanted: Shaped<{ model: string; effort: Effort | null; plan: boolean } | null>
     }
   }
 }
