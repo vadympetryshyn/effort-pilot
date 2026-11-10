@@ -1,7 +1,7 @@
 {
   "name": "effort-pilot",
-  "version": "1.9.0",
-  "description": "The right reasoning effort for every turn: plans high, building medium, questions low, picked by a Haiku classifier. The model is never changed and the prompt cache is kept: where effort is a whole-request setting (Claude 4.x, Fable 5, Bedrock, Vertex), it stands aside.",
+  "version": "1.10.0",
+  "description": "The right reasoning effort for every turn: plans high, building medium, questions low, picked by a Haiku classifier. The model is never changed unless you set a plan-mode model, and the prompt cache is kept: where effort is a whole-request setting (Claude 4.x, Fable 5, Bedrock, Vertex), it stands aside.",
   "author": { "name": "Vadym Petryshyn", "url": "https://github.com/vadympetryshyn" },
   "homepage": "https://github.com/vadympetryshyn/effort-pilot",
   "repository": "https://github.com/vadympetryshyn/effort-pilot",
@@ -15,6 +15,12 @@
       "description": "Effort for plans and plan mode.",
       "options": ["low", "medium", "high", "xhigh", "max"],
       "default": "high"
+    },
+    "planModeModel": {
+      "type": "string",
+      "title": "Plan mode model",
+      "description": "A model for the main conversation while plan mode is on: an alias (fable, opus) or a full model id. In plan mode its requests go on it at the plan effort; once the plan is approved or plan mode is left, they go on the session's own model again. Subagents keep their model. Each switch costs one request that re-reads the conversation without the prompt cache. Only on a model Effort Pilot manages, while it is on. Empty: the model is never changed.",
+      "default": ""
     },
     "analyzeEffort": {
       "type": "string",

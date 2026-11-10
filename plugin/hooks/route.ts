@@ -4,7 +4,7 @@ export const EFFORTS: readonly Effort[] = ['low', 'medium', 'high', 'xhigh', 'ma
 export const PHASES: readonly Phase[] = ['plan', 'analyze', 'implement', 'fix', 'trivial', 'chat']
 
 /** The settings' defaults: the effort table and the models it applies to. */
-export const DEFAULTS: Config = { plan: 'high', analyze: 'high', build: 'medium', hardBuild: 'high', talk: 'low', models: ['opus', 'fable'], agents: [], sessionAgent: '' }
+export const DEFAULTS: Config = { plan: 'high', analyze: 'high', build: 'medium', hardBuild: 'high', talk: 'low', models: ['opus', 'fable'], agents: [], sessionAgent: '', planModel: '' }
 
 /**
  * The settings as the plugin's options hold them (userConfig): a missing or unknown value falls back to its default,
@@ -17,6 +17,7 @@ export function configFrom(options: Readonly<Record<string, unknown>>): Config {
     : DEFAULTS.models
   const agents = typeof options.agents === 'string' ? options.agents.split(',').map(x => x.trim().toLowerCase()).filter(Boolean) : DEFAULTS.agents
   const sessionAgent = typeof options.sessionAgent === 'string' ? options.sessionAgent.trim() : DEFAULTS.sessionAgent
+  const planModel = typeof options.planModeModel === 'string' ? options.planModeModel.trim() : DEFAULTS.planModel
   return {
     plan: effort('planEffort', DEFAULTS.plan),
     analyze: effort('analyzeEffort', DEFAULTS.analyze),
@@ -26,6 +27,7 @@ export function configFrom(options: Readonly<Record<string, unknown>>): Config {
     models: listed,
     agents,
     sessionAgent,
+    planModel,
   }
 }
 
@@ -88,6 +90,9 @@ export const sameModel = (a: string | null | undefined, b: string | null | undef
   const bare = (m: string | null | undefined) => (m ?? '').trim().toLowerCase().replace(/\[[^\]]*\]$/, '')
   return bare(a) !== '' && bare(a) === bare(b)
 }
+
+/** A model's name, short, for the status line and the band: claude-fable-5-2 → fable-5-2; an alias as it is. */
+export const shortModel = (model: string) => model.trim().replace(/^claude-/i, '')
 
 /** How the band, the status and stats say the pilot stands aside on a model (after "Effort Pilot: "). */
 export function asideText(model: string, why: Aside) {

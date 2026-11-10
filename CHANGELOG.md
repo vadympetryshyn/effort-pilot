@@ -2,6 +2,11 @@
 
 All notable changes. Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions: [SemVer](https://semver.org/).
 
+## [1.10.0] — 2026-11-10
+
+- A model for plan mode: set `planModeModel` in `/config` → **effort-pilot** to an alias (`fable`, `opus`) or a full model id, and while plan mode is on the main conversation's requests go on that model, at the plan effort. Once the plan is approved, or plan mode is left, they go on the session's own model again, at the effort the pilot picks (the build effort for an approved plan). Only plan mode switches the model, never a plan the classifier reads from a message: every switch costs one request that re-reads the conversation without the prompt cache, so it follows a setting you turn on yourself. Subagents keep the model they run on. It applies while Effort Pilot is on and the session's model is one it manages; on a plan-mode model where effort is one setting of the whole request (such as Fable 5), the model still switches and your own effort is left on it. The status line and the band name the model (`effort: high plan · fable-5-2`), the line added when plan mode starts or ends mid-turn says where the requests now go, and a turn in plan mode is recorded on the model its requests went on. A switch of model is never taken for an effort switch that rewrote the cache. Empty (the default): the model is never changed, as before.
+- The first prompt after you leave plan mode with Shift+Tab is classified like any other. It used to run at the plan effort, with the band still saying `plan mode … until you leave it`, until the prompt after it.
+
 ## [1.9.0] — 2026-11-10
 
 - Plans and plan mode now run at `high` by default instead of `xhigh`: the same depth as leaving effort on `high`, at less cost and time per planning turn. If you prefer the deeper plans, set `planEffort` to `xhigh` (or `max`) in `/config` → **effort-pilot**; a value you saved yourself is kept. Asking for a level in words ("plan it on xhigh") and `ultrathink` work as before.

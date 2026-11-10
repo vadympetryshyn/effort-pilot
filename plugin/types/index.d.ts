@@ -12,9 +12,10 @@ export type Mode = 'auto' | 'shadow' | 'off'
  * The settings the rule reads: the effort of each kind of work, and the models it applies to (lower-case words, any of
  * which in a model's name makes it managed). agents: the agent types steered by their brief besides the built-ins
  * (lower-case: `plugin:agent`, `plugin:*`, a bare name, or `*`); sessionAgent: the agent type a headless session runs as
- * (`claude -p --agent <type>`) where the engine does not say it; empty: the engine's word.
+ * (`claude -p --agent <type>`) where the engine does not say it; empty: the engine's word. planModel: the model the main
+ * loop's requests go on while plan mode lasts (an alias or a full id, as typed); empty: the model is never changed.
  */
-export type Config = { plan: Effort; analyze: Effort; build: Effort; hardBuild: Effort; talk: Effort; models: readonly string[]; agents: readonly string[]; sessionAgent: string }
+export type Config = { plan: Effort; analyze: Effort; build: Effort; hardBuild: Effort; talk: Effort; models: readonly string[]; agents: readonly string[]; sessionAgent: string; planModel: string }
 
 export type Route = {
   phase: Phase
@@ -208,7 +209,8 @@ declare module 'claude-code' {
       agents: Shaped<AgentRun[]>
       /** The report the pane draws, as read when it opened or was last refreshed, and where the records are; null before. */
       board: Shaped<{ data: ReportData; where: string } | null>
-      acc: Shaped<{ steps: number; out: number; input: number; cacheRead: number; cacheWrite: number; gen: number; base: Effort | null; sent: Effort | null; at: number; trace: [Effort | null, number][] }>
+      /** This main-loop turn's requests so far; model: the plan-mode model, once a request of the turn went on it. */
+      acc: Shaped<{ steps: number; out: number; input: number; cacheRead: number; cacheWrite: number; gen: number; base: Effort | null; sent: Effort | null; at: number; trace: [Effort | null, number][]; model?: string }>
     }
   }
 }

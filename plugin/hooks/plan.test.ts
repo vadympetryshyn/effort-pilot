@@ -220,3 +220,25 @@ test('a plan asked for outside plan mode is not marked as plan mode', { options:
   expect(r).toEqual(expect.objectContaining({ phase: 'plan', sent: 'high' }))
   expect(r?.planMode).toBe(undefined)
 })
+
+// Plan mode left by Shift+Tab is known only from the prompt's own classic UserPromptSubmit, after prompt.submit routed
+// the prompt as plan mode's: that prompt is routed again, out of plan mode, before its first request.
+
+test('the first prompt after leaving plan mode by Shift+Tab is classified like any other', async ($, on) => {
+  const seen = engine(on, BUILD)
+  await planning($)
+  await complete($)
+  expect(seen.status.at(-1)).toBe('effort: high plan')
+  await building($)
+  expect(seen.sent).toEqual(['high', 'medium'])
+  expect(seen.status.at(-1)).toBe('effort: med implement')
+})
+
+test('a prompt that stays in plan mode is not routed again', async ($, on) => {
+  const seen = engine(on, BUILD)
+  await planning($)
+  await complete($)
+  await planning($)
+  expect(seen.sent).toEqual(['high', 'high'])
+  expect(seen.status.at(-1)).toBe('effort: high plan')
+})
