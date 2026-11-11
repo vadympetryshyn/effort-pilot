@@ -2,7 +2,7 @@
 
 ### The right reasoning effort for every turn in <img src="assets/claude-inline.svg" height="30" alt=""> Claude Code, set for you.
 
-Effort Pilot switches the reasoning effort for every turn, automatically: plans get `high`, building gets `medium`, questions and trivial tasks — a git commit, a push, a rename — get `low`. Deep thinking goes where it counts, and a quick question no longer waits on it. Want another model or level? Just say it, typed or dictated: "plan this on Opus at xhigh, then build on Sonnet at medium".
+Effort Pilot switches the reasoning effort for every turn, automatically: plans get `high`, building gets `medium`, questions and trivial tasks — a git commit, a push, a rename — get `low`. Deep thinking goes where it counts, and a quick question no longer waits on it. Want another model or level? Just say it, typed or dictated: "plan this on Fable 5.2 at high, then build on Opus at medium".
 
 [![version](https://img.shields.io/github/v/release/vadympetryshyn/effort-pilot?label=version&color=d97757)](https://github.com/vadympetryshyn/effort-pilot/releases)
 [![CI](https://github.com/vadympetryshyn/effort-pilot/actions/workflows/ci.yml/badge.svg)](https://github.com/vadympetryshyn/effort-pilot/actions/workflows/ci.yml)
