@@ -26,7 +26,7 @@ const BUILD = reply({ phase: 'implement' })
 function engine(on: On, replies: Record<string, string | string[]> = {}, opts: { refuse?: string } = {}) {
   const seen = {
     session: SESSION, models: [] as string[], sent: [] as unknown[], agents: [] as string[], notices: [] as string[],
-    added: [] as string[], context: [] as string[], status: [] as string[], files: new Map<string, string>(),
+    added: [] as string[], context: [] as string[], status: [] as string[], toasts: [] as string[], files: new Map<string, string>(),
   }
   const records = () => [...seen.files.values()].flatMap(t => t.split('\n').filter(Boolean)).map(l => JSON.parse(l) as Record<string, unknown>)
   const calls = new Map<string, number>()
@@ -61,7 +61,10 @@ function engine(on: On, replies: Record<string, string | string[]> = {}, opts: {
   })
   on('fs.list', () => ({ value: [] }))
   on('turn.complete', () => ({ text: 'done' }))
-  on('ui.toast', () => ({ value: undefined }))
+  on('ui.toast', (_$, e) => {
+    seen.toasts.push(String((e as { text?: unknown }).text ?? ''))
+    return { value: undefined }
+  })
   on('ui.log', () => ({ value: undefined }))
   on('ui.render', () => ({ type: 'Box', children: [] }) as never)
   on('command.run', () => ({ text: '' }))
@@ -82,8 +85,11 @@ function engine(on: On, replies: Record<string, string | string[]> = {}, opts: {
     const none = e.agentId === undefined && e.model === opts.refuse
     return { turnId: e.turnId, index: e.index, answer: none ? '' : 'ok', toolUses: [], stopReason: none ? null : 'end_turn', usage: none ? null : usage } as never
   })
+  seen0 = seen
   return Object.assign(seen, { records })
 }
+// The engine of the test running: the context the classic prompt hook adds goes beside prompt.submit's.
+let seen0: { context: string[] } | null = null
 
 let n = 0
 let messages = 0
@@ -94,7 +100,8 @@ async function step($: Engine, turnId: string, index: number) {
 async function turn($: Engine, text: string, permission: 'plan' | 'default' = 'default') {
   const id = `t${++n}`
   await $.prompt.submit({ text, origin: { kind: 'composer' } } as never)
-  await $.classic.UserPromptSubmit({ prompt: text, permission_mode: permission } as never)
+  const r = await $.classic.UserPromptSubmit({ prompt: text, permission_mode: permission } as never) as { additionalContext?: string[] }
+  seen0?.context.push(...(r?.additionalContext ?? []))
   await $.turn.start({ text, turnId: id })
   await step($, id, 0)
   return id
@@ -111,7 +118,9 @@ const exit = ($: Engine) => $.tool.call({ tool: 'ExitPlanMode', plan: 'Add hello
 
 const SONNET_MEDIUM = reply({ phase: 'chat', model: 'sonnet', asked: 'medium' })
 const BACK = reply({ phase: 'chat', model: 'opus' })
-const SWITCHED = 'Effort Pilot: now on sonnet at medium, for this session; say "back to opus" or use /model to change.'
+const SWITCHED = 'Effort Pilot: now on sonnet at medium, as you asked; the model holds until Claude Code restarts (say "back to opus" or use /model to change).'
+const ON_SONNET = 'The Effort Pilot plugin already sends this turn\'s requests to sonnet, as the person asked: you run on sonnet now, whatever model the system prompt names. Each turn on another model than the system prompt\'s gets such a line; a turn without one runs on the system prompt\'s model. Nothing to do for it.'
+const STILL_SONNET = 'The Effort Pilot plugin sends this turn\'s requests to sonnet: you run on sonnet, whatever model the system prompt names.'
 
 describe('the classifier\'s model fields', () => {
   test('a model reads as an alias, or a full id where a version is named; anything else as none', () => {
@@ -185,7 +194,7 @@ test('a model asked for with an effort holds for the rest of the session, at tha
   expect(seen.models).toEqual(['sonnet', 'sonnet'])
   expect(seen.sent).toEqual(['medium', 'medium'])
   expect(seen.notices).toEqual([SWITCHED])
-  expect(seen.context).toEqual([`The Effort Pilot plugin switches the model as the person asked; nothing to do for it. ${SWITCHED}`])
+  expect(seen.context).toEqual([`${ON_SONNET} ${SWITCHED}`, STILL_SONNET])
   expect(seen.status.at(-1)).toBe('effort: med · you asked · sonnet')
   expect(await run($, 'effort-pilot')).toContain('on sonnet at medium, as you asked')
 })
@@ -328,4 +337,104 @@ test('a model asked earlier gives way to the plan-mode model in plan mode, and c
   expect(seen.models).toEqual(['sonnet', 'claude-fable-5-2', 'sonnet'])
   expect(seen.sent).toEqual(['medium', 'high', 'medium'])
   expect(seen.added).toEqual(['Effort Pilot: reasoning effort is now medium, on sonnet, for carrying out the approved plan.'])
+})
+
+describe('what a switch tells the person and the model', () => {
+  test('a switch shows one toast naming the model and the effort, and no effort toast beside it', async ($, on) => {
+    const seen = engine(on, { 'switch me to sonnet': reply({ phase: 'chat', model: 'sonnet', asked: 'low' }) })
+    await said($, 'Add an export button to the reports page.')
+    seen.toasts.length = 0
+    await said($, 'switch me to sonnet at low')
+    expect(seen.models).toEqual([SESSION, 'sonnet'])
+    expect(seen.sent).toEqual(['medium', 'low'])
+    expect(seen.toasts).toEqual(['Effort Pilot: now on sonnet at low'])
+    expect(seen.notices).toEqual(['Effort Pilot: now on sonnet at low, as you asked; the model holds until Claude Code restarts (say "back to opus" or use /model to change).'])
+  })
+  test('an effort-only change still toasts the effort', async ($, on) => {
+    const seen = engine(on, { 'quick question': reply({ phase: 'chat' }) })
+    await said($, 'Add an export button to the reports page.')
+    await said($, 'quick question: what is the default port?')
+    expect(seen.toasts).toEqual(['effort: med → low chat'])
+  })
+  test('a switch with no effort named goes at the person\'s own effort, and says so', async ($, on) => {
+    const seen = engine(on, { 'switch to sonnet': reply({ phase: 'chat', model: 'sonnet' }) })
+    await said($, 'switch to sonnet')
+    expect(seen.sent).toEqual(['high'])
+    expect(seen.toasts).toEqual(['Effort Pilot: now on sonnet at your own effort'])
+    expect(seen.notices).toEqual(['Effort Pilot: now on sonnet at your own effort; the model holds until Claude Code restarts (say "back to opus" or use /model to change).'])
+    expect(seen.status.at(-1)).toBe('effort: your own · sonnet')
+  })
+  test('going back with an effort named shows one toast and says the effort was asked', async ($, on) => {
+    const seen = engine(on, { 'switch me to sonnet': SONNET_MEDIUM, 'back to opus': reply({ phase: 'chat', model: 'opus', asked: 'high' }) })
+    await said($, 'switch me to sonnet at medium')
+    seen.toasts.length = 0
+    seen.context.length = 0
+    await said($, 'back to opus at high')
+    expect(seen.models).toEqual(['sonnet', SESSION])
+    expect(seen.sent).toEqual(['medium', 'high'])
+    expect(seen.toasts).toEqual([`Effort Pilot: back on ${SESSION} at high`])
+    expect(seen.notices.at(-1)).toBe(`Effort Pilot: back on the session's model (${SESSION}) at high, as you asked.`)
+    expect(seen.context).toEqual([`The Effort Pilot plugin already sends this turn's requests to ${SESSION}, as the person asked: you run on ${SESSION} now, whatever model the system prompt names. Each turn on another model than the system prompt's gets such a line; a turn without one runs on the system prompt's model. Nothing to do for it. Effort Pilot: back on the session's model (${SESSION}) at high, as you asked.`])
+  })
+  test('once back on the session\'s model, later prompts carry no model line', async ($, on) => {
+    const seen = engine(on, { 'switch me to sonnet': SONNET_MEDIUM, 'back to opus': BACK })
+    await said($, 'switch me to sonnet at medium')
+    await said($, 'back to opus')
+    seen.context.length = 0
+    await said($, 'Add an export button to the reports page.')
+    expect(seen.context).toEqual([])
+  })
+  test('asking for the model already in use says so, once', async ($, on) => {
+    const seen = engine(on, { 'use opus': reply({ phase: 'chat', model: 'opus' }) })
+    await said($, 'use opus for this')
+    expect(seen.models).toEqual([SESSION])
+    expect(seen.toasts).toEqual([`Effort Pilot: already on ${SESSION} at low`])
+    expect(seen.notices).toEqual([`Effort Pilot: already on the session's model (${SESSION}) at low.`])
+  })
+  test('a model the API refuses toasts once its turn ends, and says where requests go', async ($, on) => {
+    const seen = engine(on, { 'sonnet 9.9': reply({ phase: 'chat', model: 'sonnet 9.9' }) }, { refuse: 'claude-sonnet-9-9' })
+    const id = await turn($, 'switch to sonnet 9.9')
+    expect(seen.toasts).toEqual(['Effort Pilot: now on claude-sonnet-9-9 at your own effort'])
+    await complete($, id, 'error')
+    expect(seen.toasts.at(-1)).toBe(`Effort Pilot: claude-sonnet-9-9 is not available here; back on ${SESSION}`)
+    expect(seen.status.at(-1)).toBe('effort: back on opus-5-5 · claude-sonnet-9-9 is not available')
+  })
+  test('in shadow mode a switch is not made, and the line says so', async ($, on) => {
+    const seen = engine(on, { 'switch me to sonnet': SONNET_MEDIUM })
+    await run($, 'effort-pilot', 'shadow')
+    await said($, 'switch me to sonnet at medium')
+    expect(seen.models).toEqual([SESSION])
+    expect(seen.toasts).toEqual([])
+    expect(seen.notices).toEqual(['Effort Pilot is in shadow mode: it does not switch the model (/effort-pilot on lets it, or use /model).'])
+    expect(seen.context[0]).toStartWith('A note from the Effort Pilot plugin; nothing to do for it now.')
+  })
+  test('a build model for later is not said to take effect now', async ($, on) => {
+    const seen = engine(on, { 'plan adding hello.txt': reply({ phase: 'plan', buildModel: 'sonnet' }) })
+    await said($, 'plan adding hello.txt, then implement on sonnet')
+    expect(seen.models).toEqual([SESSION])
+    expect(seen.toasts).toEqual([])
+    expect(seen.context).toEqual(['A note from the Effort Pilot plugin; nothing to do for it now. Effort Pilot: the plan will be carried out on sonnet, as you asked; the pilot switches to it when building starts.'])
+  })
+  test('a plan model and a build model: the context names only the plan model as in effect', async ($, on) => {
+    const seen = engine(on, { 'plan adding hello.txt': PLAN_BOTH })
+    await said($, 'plan adding hello.txt on fable at high, then implement on sonnet at medium')
+    expect(seen.toasts).toEqual(['Effort Pilot: planning on fable at high'])
+    expect(seen.context[0]).toStartWith('The Effort Pilot plugin already sends this turn\'s requests to fable, as the person asked: you run on fable now')
+    expect(seen.context[0]).toContain('the pilot switches to it when building starts')
+    expect(seen.context).toHaveLength(1)
+  })
+  test('a turn in plan mode on the plan-mode model is told which model it runs on', { options: { planModeModel: 'claude-fable-5-2' } }, async ($, on) => {
+    const seen = engine(on)
+    await said($, 'Plan a CSV export for the reports page.', 'plan')
+    expect(seen.models).toEqual(['claude-fable-5-2'])
+    expect(seen.context).toEqual(['The Effort Pilot plugin sends this turn\'s requests to claude-fable-5-2: you run on claude-fable-5-2, whatever model the system prompt names.'])
+  })
+  test('an approved plan on a build model shows one toast, the build model\'s', async ($, on) => {
+    const seen = engine(on, { 'plan adding hello.txt': PLAN_BOTH })
+    const id = await turn($, 'plan adding hello.txt on fable at high, then implement on sonnet at medium')
+    seen.toasts.length = 0
+    await exit($)
+    await step($, id, 1)
+    expect(seen.toasts).toEqual(['Effort Pilot: carrying out the plan on sonnet at medium'])
+  })
 })
