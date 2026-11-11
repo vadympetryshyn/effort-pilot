@@ -2,7 +2,7 @@
 
 ### The right reasoning effort for every turn in <img src="assets/claude-inline.svg" height="30" alt=""> Claude Code, set for you.
 
-Effort Pilot switches the reasoning effort for every turn, automatically: plans get `high`, building gets `medium`, questions and trivial tasks — a git commit, a push, a rename — get `low`. Deep thinking goes where it counts, and a quick question no longer waits on it.
+Effort Pilot switches the reasoning effort for every turn, automatically: plans get `high`, building gets `medium`, questions and trivial tasks — a git commit, a push, a rename — get `low`. Deep thinking goes where it counts, and a quick question no longer waits on it. Want another model or level? Just say it, typed or dictated: "plan this on Opus at xhigh, then build on Sonnet at medium".
 
 [![version](https://img.shields.io/github/v/release/vadympetryshyn/effort-pilot?label=version&color=d97757)](https://github.com/vadympetryshyn/effort-pilot/releases)
 [![CI](https://github.com/vadympetryshyn/effort-pilot/actions/workflows/ci.yml/badge.svg)](https://github.com/vadympetryshyn/effort-pilot/actions/workflows/ci.yml)
@@ -22,6 +22,7 @@ Compared with leaving effort on `high` all the time, on the author's own turns:
 - **Plans lose nothing.** Plans and plan mode run at `high`, the same depth as always-on `high`; set `planEffort` to `xhigh` or `max` for more.
 - **Up to 10% fewer tokens.** Every turn that drops from `high` to `medium` or `low` thinks less, so it spends fewer tokens. How much you save depends on your settings: the more levels you set below `high`, the more you save.
 - **Nothing to switch.** You never type `/effort`; the line above the prompt shows what it picked and why.
+- **Switch models and effort by saying it.** In plain words, typed or dictated, in any language: "switch me to Sonnet at medium", "back to Opus", "plan it on Fable, then implement on Sonnet at high". No `/model`, no `/effort`; a model named for a subagent or in code switches nothing.
 
 <sub>≈ From the author's own sessions with `/effort-pilot report`. Token savings vary with your settings and your work. Not proven yet: fewer turns that fall short. Every setup differs: measure yours.</sub>
 
