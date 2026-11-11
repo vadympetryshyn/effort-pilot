@@ -396,6 +396,10 @@ describe('SYSTEM', () => {
   test('reads Claude Code\'s own keyword as asking for xhigh, never max', () => {
     expect(SYSTEM).toContain('The word "ultrathink" (Claude Code\'s own keyword) is asked xhigh, never max')
   })
+  test('reads a reminder of an action the agent was told to take and did not as the work falling short', () => {
+    expect(SYSTEM).toContain('(an action it was told to take and did not: "you did not open X either")')
+    expect(SYSTEM).toContain('even one the person forgot to give before (a reminder of one given before is faulted);')
+  })
 })
 
 describe('cacheRewritten', () => {
