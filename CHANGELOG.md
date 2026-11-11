@@ -2,6 +2,11 @@
 
 All notable changes. Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions: [SemVer](https://semver.org/).
 
+## [1.12.3] — 2026-11-11
+
+- A switch of model typed while the agent works now reaches the model with your message itself. Since 1.12.2 its line went with the next tool result, so a reply that ran no tool first could still say it cannot switch, though the request already went on the model you named. The message is now read when you send it: the switch is made then and its line goes with the message. Reading it takes a second or two before the message is queued; if the agent's next request starts in that time, the message reaches the model one request later, as it would have if typed a moment later.
+- A reminder of something the agent was told to do and did not ("you did not open X either") reads again as the work falling short. Since 1.12.2 such a message could read as a new request, which left it out of the report's fell-short rate. Effort was never affected.
+
 ## [1.12.2] — 2026-11-11
 
 - Text you ask the agent to write is no longer read as an ask. A sentence you dictate or quote for a file, the README, docs, a commit message, release notes, an issue or a reply to post ("in the README, replace the example with: plan this on Fable at high, then build on Opus at medium") used to switch the model, and could set the effort, because it names a model and a level. Such text is now the content to write: it switches no model and asks for no level, quoted or not. A model or level you name for the agent's own work beside such an edit still counts ("plan this on Fable at high, then edit the README").
