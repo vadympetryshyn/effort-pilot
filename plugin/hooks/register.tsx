@@ -192,9 +192,10 @@ async function setPlan($: EngineInterface, isPlan: boolean) {
 
 /**
  * Route a turn that starts with this text: a person's prompt, a notification, or a message that waited in the queue.
- * handBack: the engine marked the notification meta (a subagent's hand-back), the result of a finished task.
+ * handBack: the engine marked the notification meta (a subagent's hand-back), the result of a finished task. pre: a
+ * queued message's read as it was submitted (heard): its pick is taken, and a switch it made is not made again.
  */
-async function begin($: EngineInterface, text: string, kind: string, handBack = false) {
+async function begin($: EngineInterface, text: string, kind: string, handBack = false, pre: Early | null = null) {
   planBegun = null
   const notice = NOTICE.has(kind)
   await update($, blind, () => false)
@@ -219,8 +220,9 @@ async function begin($: EngineInterface, text: string, kind: string, handBack = 
     planBegun = { text, kind, handBack }
     await update($, arm, () => 'auto' as const)
     // Only what the person asks for: the planning's effort, or the build's once the plan is approved.
-    const said = await classify($, text, true).catch(() => null)
+    const said = pre ? pre.pick : await classify($, text, true).catch(() => null)
     turnPick = said
+    if (pre?.switched) return
     await asks($, said)
     await publish($)
     // A model named for the planning takes over now; one for the build waits for the plan (asks).
@@ -231,7 +233,7 @@ async function begin($: EngineInterface, text: string, kind: string, handBack = 
   if (!notice && (await briefed($, text))) return
   if (!notice) await seed($, text).catch(err => $.ui.log(`effort-pilot: could not read the session so far: ${String(err)}`))
   const work = await read($, task)
-  const pick = await classify($, text, true, notice).catch(() => null)
+  const pick = pre ? pre.pick : await classify($, text, true, notice).catch(() => null)
   const share0 = share()
   const carried = pick && !notice ? carry(work, pick, text, config) : null
   const envelope = noticeOf(text)
@@ -252,7 +254,7 @@ async function begin($: EngineInterface, text: string, kind: string, handBack = 
   }
   await publish($)
   // The person's own message: a model it asks for, or the one asked for the build once building starts.
-  if (carried && pick) {
+  if (carried && pick && !pre?.switched) {
     const r = carried.route
     const build = work?.phase === 'plan' && (r.phase === 'implement' || r.phase === 'fix') && !pick.model
     await wantModel($, r, { plan: r.phase === 'plan', build })
@@ -436,9 +438,9 @@ async function lines($: EngineInterface) {
   await tell($)
   return out
 }
-// A switch asked for in a message typed mid-turn: its line goes with the main loop's next tool result, the first input
-// the model reads after the request that carried the message; dropped when the turn ends (a later turn on the asked
-// model gets stillOn's line).
+// A switch asked for in a message typed mid-turn whose line the engine did not carry with the message (prompt.submit):
+// it goes with the main loop's next tool result, the first input the model reads after the request that carried the
+// message; dropped when the turn ends (a later turn on the asked model gets stillOn's line).
 let midLine: string | null = null
 
 // Measuring: a share of turns is left at the person's own effort (control), picked at random per turn; effort costs
@@ -576,25 +578,66 @@ async function seed($: EngineInterface, current: string) {
 const midTold = () => {
   if (told) midLine = midLine ? `${midLine} ${switchLine(told, toldOn)}` : switchLine(told, toldOn)
 }
+/** Whether a message typed mid-turn is read: one routed, the pilot on and not paused, on a model it steers, in a turn it routes. */
+async function readable($: EngineInterface, kind: string) {
+  if (!routed(kind) || (await read($, mode)) !== 'auto' || (await read($, pin)) !== null) return false
+  return managed(await modelOf($)) && (await read($, who)) !== null
+}
+/** In plan mode, what a message asks for: the planning's effort and model now, the build's for later. */
+async function planAsks($: EngineInterface, pick: Route | null) {
+  await asks($, pick)
+  await publish($)
+  if (pick) await wantModel($, pick, { plan: true, build: false })
+  await buildNote($)
+}
+/**
+ * Messages typed mid-turn, read as each is submitted (all those queued so far, as one text): the classifier's pick, and
+ * whether the switch it asks for is made already. Taken where they reach the agent (delivered) or start a turn of their
+ * own (turn.start), so they are classified once.
+ */
+type Early = { pick: Route | null; switched: boolean }
+let early: Early | null = null
+/**
+ * A message typed mid-turn, read as it is submitted: the request that carries it already goes on a model it asks for,
+ * so the switch is made now and its line goes with the message itself (else a reply that runs no tool first says no
+ * switch can be made). The line, or null; what else it asks for waits until it reaches the agent (delivered).
+ */
+async function heard($: EngineInterface, kind: string, text: string): Promise<string | null> {
+  if (!(await readable($, kind))) {
+    early = null
+    return null
+  }
+  const pick = await classify($, text, true, false, true).catch(() => null)
+  const before = early?.switched ?? false
+  early = { pick, switched: before }
+  const plan = await read($, planMode)
+  if (!pick?.model && !(plan && pick?.buildModel)) return null
+  // An earlier message of this queue made this switch already: once is enough.
+  if (before && pick.model && (await read($, wanted))?.model === pick.model) return null
+  if (plan) await planAsks($, pick)
+  else await wantModel($, pick, { plan: pick.phase === 'plan', build: false })
+  early.switched = true
+  const line = told ? switchLine(told, toldOn) : null
+  await tell($)
+  return line
+}
 /**
  * A message typed mid-turn has reached the agent. A question or a correction about the work under way changes nothing;
- * a new task becomes the work under way and raises the turn's effort to its own (never lowers it).
+ * a new task becomes the work under way and raises the turn's effort to its own (never lowers it). pre: its read at
+ * submit (heard), reused rather than classified again.
  */
-async function delivered($: EngineInterface, kind: string, text: string) {
-  if (!routed(kind) || (await read($, mode)) !== 'auto' || (await read($, pin)) !== null) return
-  if (!managed(await modelOf($)) || (await read($, who)) === null) return
-  const pick = await classify($, text, true, false, true).catch(() => null)
+async function delivered($: EngineInterface, kind: string, text: string, pre: Early | null) {
+  if (!(await readable($, kind))) return
+  const pick = pre ? pre.pick : await classify($, text, true, false, true).catch(() => null)
   if (await read($, planMode)) {
-    await asks($, pick)
-    await publish($)
-    if (pick) await wantModel($, pick, { plan: true, build: false })
-    await buildNote($)
+    if (pre?.switched) return
+    await planAsks($, pick)
     midTold()
     await tell($)
     return
   }
   // A model asked for mid-turn takes over from the next request.
-  if (pick?.model) {
+  if (pick?.model && !pre?.switched) {
     await wantModel($, pick, { plan: pick.phase === 'plan', build: false })
     midTold()
     await tell($)
@@ -1054,10 +1097,11 @@ export const register: Register = (on, options) => {
   }).catch(($, e, next) => next(e))
 
   // Classify each prompt a person sends, and each notification that starts a turn of its own, before the turn starts.
-  // A message typed while a turn runs is not read: it waits in the queue, and once delivered it can change the effort
-  // only for the rest of that turn, while the next prompt is classified anyway. It counts only as new input, the
-  // moment Claude Code applies an effort asked for mid-turn. If the turn ends before it is delivered, it starts a turn
-  // of its own, classified then (turn.start). A slash command typed while a turn runs waits until it ends and is
+  // A message typed while a turn runs is read as it is submitted, once (heard): a model it asks for is switched to then,
+  // and its line goes with the message. It waits in the queue, and once delivered it can change the effort only for the
+  // rest of that turn, while the next prompt is classified anyway. It counts only as new input, the moment Claude Code
+  // applies an effort asked for mid-turn. If the turn ends before it is delivered, it starts a turn of its own, routed
+  // then from that read (turn.start). A slash command typed while a turn runs waits until it ends and is
   // submitted then, as from an idle session: routed as below. Only the main loop's running turn makes a message mid-turn:
   // one submitted while only a subagent works (it carries the subagent's turn id) starts a main-loop turn, routed here.
   // A meta submit is the engine's own, not routed, except a notification's: a subagent's hand-back comes as a meta
@@ -1067,12 +1111,21 @@ export const register: Register = (on, options) => {
     if (e.origin.kind === 'sdk') interactive = false
     else if (LIVE.has(e.origin.kind)) interactive = true
     if (e.turnId !== undefined && mainTurn !== null) {
-      if (!e.command && !e.isMeta && !NOTICE.has(e.origin.kind)) {
-        freshInput = true
-        queued = e.origin.kind
-        waiting.push(e.text)
-      }
-      return next(e)
+      if (e.command || e.isMeta || NOTICE.has(e.origin.kind)) return next(e)
+      // Read now (one classification, before the message is queued): a switch it asks for goes with it, as a first
+      // prompt's does. The engine carries a queued message's context with it; where it did not, the line goes with the
+      // main loop's next tool result instead.
+      const line = await heard($, e.origin.kind, [...waiting, e.text].join('\n\n')).catch(err => {
+        $.ui.log(`effort-pilot: could not read the message typed mid-turn: ${String(err)}`)
+        return null
+      })
+      freshInput = true
+      queued = e.origin.kind
+      waiting.push(e.text)
+      if (!line) return next(e)
+      const result = await next({ ...e, context: [...(e.context ?? []), line] })
+      if (!result.drop && !result.context?.includes(line)) midLine = midLine ? `${midLine} ${line}` : line
+      return result
     }
     submitted = true
     lineGiven = false
@@ -1132,7 +1185,7 @@ export const register: Register = (on, options) => {
     const result = await next(e)
     return extra ? { ...result, additionalContext: [...(result.additionalContext ?? []), extra] } : result
   }).catch(($, e, next) => next(e))
-  // A switch asked for mid-turn: the model reads its line with the main loop's next tool result.
+  // A switch asked for mid-turn whose line did not go with the message: the model reads it with the next tool result.
   on('tool.call', async ($, e, next) => {
     const result = await next(e)
     if (e.agentId !== undefined || !midLine || result.deny !== undefined) return result
@@ -1247,11 +1300,13 @@ export const register: Register = (on, options) => {
       await resume($)
       // No prompt.submit before this turn and a message still queued: the turn is that message's, read only now.
       const kind = queued
+      const pre = early
       queued = null
       waiting = []
+      early = null
       await unrouted($)
       if (!submitted && kind && e.text.trim()) {
-        await begin($, e.text, kind)
+        await begin($, e.text, kind, false, pre)
         await tell($)
         // No context reaches the model here: the line standing() left was this message's, not a later prompt's.
         stand = null
@@ -1326,10 +1381,12 @@ export const register: Register = (on, options) => {
     if (input && e.index > 0) {
       const kind = queued
       const texts = waiting
+      const pre = early
       queued = null
       waiting = []
-      // A message typed mid-turn goes with this request: read it now, so this request already goes at its effort.
-      if (kind && texts.length) await delivered($, kind, texts.join('\n\n')).catch(err => $.ui.log(`effort-pilot: could not read the message typed mid-turn: ${String(err)}`))
+      early = null
+      // A message typed mid-turn goes with this request: its read applies now, so this request already goes at its effort.
+      if (kind && texts.length) await delivered($, kind, texts.join('\n\n'), pre).catch(err => $.ui.log(`effort-pilot: could not read the message typed mid-turn: ${String(err)}`))
     }
     // A number is the person's own effort: it goes as they set it.
     const effort = typeof e.effort === 'string' ? await aim($, e.model) : undefined

@@ -21,9 +21,10 @@ const BUILD = reply({ phase: 'implement' })
 /**
  * A session on Opus 5.5: replies picks the classifier's answer by the message it reads (the first key the prompt holds),
  * else BUILD. Records each main-loop request's model and effort, the subagents' models, the notices, the lines added,
- * the context a prompt went with, the status lines and the turn records.
+ * the context a prompt went with, the status lines, the turn records and the classifier's reads of each message (reads).
+ * Like core, a prompt enters with the context it came with, unless drop is set (an engine that carried none).
  */
-function engine(on: On, replies: Record<string, string | string[]> = {}, opts: { refuse?: string; expand?: Engine } = {}) {
+function engine(on: On, replies: Record<string, string | string[]> = {}, opts: { refuse?: string; expand?: Engine; drop?: boolean } = {}) {
   const seen = {
     session: SESSION, models: [] as string[], sent: [] as unknown[], agents: [] as string[], notices: [] as string[],
     added: [] as string[], context: [] as string[], status: [] as string[], toasts: [] as string[], files: new Map<string, string>(),
@@ -31,6 +32,7 @@ function engine(on: On, replies: Record<string, string | string[]> = {}, opts: {
   }
   const records = () => [...seen.files.values()].flatMap(t => t.split('\n').filter(Boolean)).map(l => JSON.parse(l) as Record<string, unknown>)
   const calls = new Map<string, number>()
+  const reads = (key: string) => calls.get(key) ?? 0
   on('command.register', () => ({ value: { command: 'effort-pilot' } }))
   on('session.model', () => ({ value: seen.session }))
   on('session.id', () => ({ value: 's1' }))
@@ -49,7 +51,7 @@ function engine(on: On, replies: Record<string, string | string[]> = {}, opts: {
     seen.context.push(...(e.context ?? []))
     // A command the engine expands beneath: the prompt the model reads for it.
     if (e.command && opts.expand) seen.skill = (await opts.expand.skill.prompt({ skill: e.command.name, text: 'Review the change.', frontmatter: {} } as never)).text
-    return { text: e.text }
+    return opts.drop || !e.context ? { text: e.text } : { text: e.text, context: e.context }
   })
   on('ui.status', (_$, e) => {
     seen.status.push(e.text ?? '')
@@ -90,7 +92,7 @@ function engine(on: On, replies: Record<string, string | string[]> = {}, opts: {
     return { turnId: e.turnId, index: e.index, answer: none ? '' : 'ok', toolUses: [], stopReason: none ? null : 'end_turn', usage: none ? null : usage } as never
   })
   seen0 = seen
-  return Object.assign(seen, { records })
+  return Object.assign(seen, { records, reads })
 }
 // The engine of the test running: the context the classic prompt hook adds goes beside prompt.submit's.
 let seen0: { context: string[] } | null = null
@@ -505,8 +507,49 @@ describe('where the pilot switches no model, the model reads why', () => {
     await said($, 'Add a print button to the reports page.')
     expect(seen.context).toEqual([])
   })
-  test('a switch typed mid-turn: the model reads its line with the next tool result, and the person sees it', async ($, on) => {
+  test('a switch typed mid-turn goes with the message itself, read once, and the request that carries it goes on the asked model', async ($, on) => {
     const seen = engine(on, { 'switch me to sonnet': SONNET_MEDIUM })
+    const id = await turn($, 'Add an export button to the reports page.')
+    seen.context.length = 0
+    await $.prompt.submit({ text: 'switch me to sonnet at medium', turnId: id, origin: { kind: 'composer' } } as never)
+    expect(seen.context).toEqual([`${ON_SONNET} ${SWITCHED}`])
+    expect(seen.notices).toEqual([SWITCHED])
+    const read = seen.reads('switch me to sonnet')
+    expect(read).toBeGreaterThan(0)
+    await step($, id, 1)
+    const r = await $.tool.call({ tool: 'Bash', command: 'ls', tool_use_id: 'tu2' } as never) as { context?: string[] }
+    expect(seen.models).toEqual([SESSION, 'sonnet'])
+    expect(seen.reads('switch me to sonnet')).toBe(read)
+    expect(r.context).toBe(undefined)
+    expect(seen.notices).toEqual([SWITCHED])
+    expect(seen.toasts.filter(t => t.includes('now on sonnet'))).toHaveLength(1)
+  })
+  test('a switch typed mid-turn is read with the same classifier reads as one typed at the prompt', async ($, on) => {
+    const first = engine(on, { 'switch me to sonnet': SONNET_MEDIUM, 'back to opus': BACK })
+    await said($, 'switch me to sonnet at medium')
+    const atPrompt = first.reads('switch me to sonnet')
+    await said($, 'back to opus')
+    const id = await turn($, 'Add an export button to the reports page.')
+    await $.prompt.submit({ text: 'switch me to sonnet at medium', turnId: id, origin: { kind: 'composer' } } as never)
+    await step($, id, 1)
+    await complete($, id)
+    expect(first.reads('switch me to sonnet')).toBe(2 * atPrompt)
+  })
+  test('a message typed mid-turn that asks for no model adds no line, and its effort applies once it reaches the agent, read once', async ($, on) => {
+    const seen = engine(on, { 'Plan how to move': reply({ phase: 'plan', hard: true }) })
+    const id = await turn($, 'Add an export button to the reports page.')
+    seen.context.length = 0
+    await $.prompt.submit({ text: 'Plan how to move the reports to the new database instead.', turnId: id, origin: { kind: 'composer' } } as never)
+    expect(seen.context).toEqual([])
+    expect(seen.reads('Plan how to move')).toBe(1)
+    await step($, id, 1)
+    expect(seen.reads('Plan how to move')).toBe(1)
+    expect(seen.sent).toEqual(['medium', 'high'])
+    await complete($, id)
+    expect(seen.notices).toEqual([])
+  })
+  test('where the engine carries no context with a message typed mid-turn, its switch line goes with the next tool result', async ($, on) => {
+    const seen = engine(on, { 'switch me to sonnet': SONNET_MEDIUM }, { drop: true })
     const id = await turn($, 'Add an export button to the reports page.')
     await $.prompt.submit({ text: 'switch me to sonnet at medium', turnId: id, origin: { kind: 'composer' } } as never)
     await step($, id, 1)
@@ -517,14 +560,28 @@ describe('where the pilot switches no model, the model reads why', () => {
     expect(later.context).toBe(undefined)
     expect(seen.notices).toEqual([SWITCHED])
   })
-  test('a switch typed mid-turn whose turn ends before a tool runs leaves no line for later', async ($, on) => {
-    engine(on, { 'switch me to sonnet': SONNET_MEDIUM })
+  test('a switch line the engine did not carry, in a turn that ends before a tool runs, is not left for later', async ($, on) => {
+    engine(on, { 'switch me to sonnet': SONNET_MEDIUM }, { drop: true })
     const id = await turn($, 'Add an export button to the reports page.')
     await $.prompt.submit({ text: 'switch me to sonnet at medium', turnId: id, origin: { kind: 'composer' } } as never)
     await step($, id, 1)
     await complete($, id)
     const r = await $.tool.call({ tool: 'Bash', command: 'ls', tool_use_id: 'tu2' } as never) as { context?: string[] }
     expect(r.context).toBe(undefined)
+  })
+  test('a switch typed mid-turn that starts a turn of its own, the turn ending first, is read and switched once', async ($, on) => {
+    const seen = engine(on, { 'switch me to sonnet': SONNET_MEDIUM })
+    const id = await turn($, 'Add an export button to the reports page.')
+    await $.prompt.submit({ text: 'switch me to sonnet at medium', turnId: id, origin: { kind: 'composer' } } as never)
+    const read = seen.reads('switch me to sonnet')
+    await complete($, id)
+    await $.turn.start({ text: 'switch me to sonnet at medium', turnId: 'queued1' })
+    await step($, 'queued1', 0)
+    await complete($, 'queued1')
+    expect(seen.reads('switch me to sonnet')).toBe(read)
+    expect(seen.models).toEqual([SESSION, 'sonnet'])
+    expect(seen.notices).toEqual([SWITCHED])
+    expect(seen.toasts.filter(t => t.includes('now on sonnet'))).toHaveLength(1)
   })
   test('a switch asked in a slash command\'s arguments goes with the command\'s prompt the model reads', async ($, on) => {
     const seen = engine(on, { 'switch me to sonnet': SONNET_MEDIUM }, { expand: $ })
