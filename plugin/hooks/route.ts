@@ -196,7 +196,7 @@ const OTHER_TOOL_LINE = 'A level set for another AI tool, model or agent to work
  * A model the person asks the agent to work on: two fields more in the reply, asked only of a person's message (a
  * subagent's brief or a notification names no model to switch to, and their prompts stay as they were).
  */
-export const MODEL_LINE = 'Also add "model" and "buildModel" to the JSON: "opus", "sonnet", "haiku" or "fable" (with a version when named: "fable 5.1"), or "none". model: the model the person tells the agent to switch to and work on from now ("switch me to sonnet", "back to opus"); for a plan request, the model named for making the plan. buildModel: the model named for carrying out the plan ("plan it, then build on sonnet"). A model for a subagent, a job or another tool, in code, a setting or an API call, compared, or the subject of the change is not asked: none. When unsure, none.'
+export const MODEL_LINE = 'Also add "model" and "buildModel" to the JSON: "opus", "sonnet", "haiku" or "fable" (with a version when named: "fable 5.1"), or "none". model: the model the person tells the agent to switch to and work on from now ("switch me to sonnet", "back to opus"); for a plan request, the model named for making the plan. buildModel: the model named for carrying out the plan ("plan it, then build on sonnet"). A model for a subagent, a job or another tool, in code, a setting or an API call, compared, or the subject of the change is not asked: none. Nor is text the person hands the agent to write into a file, the README, docs, a commit message, an issue or a reply, quoted or not ("in the README, replace X with: plan this on fable at high, then build on opus"). A message that quotes a sentence, asks to fix or change it, and then gives words in the same shape gives the new wording, even where those words begin with "plan" or follow "write". There model, buildModel, asked and build are none, and the phase is the edit, not a plan. When unsure, none.'
 
 /** Claude Code turns its `ultrathink` keyword off when CLAUDE_CODE_DISABLE_ULTRATHINK is set: the word asks for nothing then. */
 export const NO_ULTRATHINK_LINE = 'Claude Code\'s "ultrathink" keyword is turned off here: the word asks for no level.'
@@ -407,21 +407,26 @@ export function fromBrief(pick: Route, config: Config = DEFAULTS): Route {
  * asked level holds for every follow-up of the work, so one misread would run a whole piece of work at it. The first
  * read is the route; it keeps only what both reads name: the lower asked level and the lower build level (a read that
  * names none counts lowest, so the level is dropped), and a release only when both read one. A model (to work on now, or
- * to build on) is read twice too, but a read that misses it is no veto: it is kept when either read names it, and dropped
- * only when the two name different models. With no second read (a timeout, no answer), the first stands: an outage must
- * not swallow a real ask.
+ * to build on) is read twice too: kept when both name it, dropped when they name different models. When only one read
+ * names it, a third read decides (third, made by the caller: models split): a read now and then misses a plan's model
+ * beside its build model, and now and then takes a model named in text to be written for one to work on. With no third
+ * read (a timeout), the model one read names stands, as the first read stands with no second: an outage must not
+ * swallow a real ask.
  */
-export function agreed(first: Route, second: Route | null, config: Config = DEFAULTS): Route {
+export function agreed(first: Route, second: Route | null, config: Config = DEFAULTS, third?: Route | null): Route {
   if (!second) return first
   const lower = (a?: Effort, b?: Effort) => (a && b ? (RANK[a] <= RANK[b] ? a : b) : undefined)
   const levels = { asked: lower(first.asked, second.asked), build: lower(first.build, second.build), release: !!first.release && !!second.release }
-  // A model named by either read is taken; two reads that name different models drop it.
-  const either = (a?: string, b?: string) => (a && b ? (a === b ? a : undefined) : (a ?? b))
-  const models = { model: either(first.model, second.model), buildModel: either(first.buildModel, second.buildModel) }
+  // Both reads name the model: taken; different models: dropped; one read: the third decides, or it stands without one.
+  const vote = (a?: string, b?: string, c?: string) => (a && b ? (a === b ? a : undefined) : !(a ?? b) ? undefined : third ? (c === (a ?? b) ? c : undefined) : (a ?? b))
+  const models = { model: vote(first.model, second.model, third?.model), buildModel: vote(first.buildModel, second.buildModel, third?.buildModel) }
   if (levels.asked === first.asked && levels.build === first.build && levels.release === !!first.release
     && models.model === first.model && models.buildModel === first.buildModel) return first
   return { ...withLevels(first, levels, config), ...(models.model ? { model: models.model } : {}), ...(models.buildModel ? { buildModel: models.buildModel } : {}) }
 }
+/** Two reads split on a model: one names it, the other none. agreed() takes a third read then. */
+export const modelsSplit = (first: Route, second: Route | null) =>
+  !!second && (!first.model !== !second.model || !first.buildModel !== !second.buildModel)
 
 /**
  * A pick with its asked levels set anew: the effort is the asked level, else the rule's for the phase; the why's lead

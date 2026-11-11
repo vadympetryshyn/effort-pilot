@@ -4,7 +4,7 @@ import type { EngineInterface, Register, TurnStepResult } from 'claude-code'
 import type { AgentRun, Config, Effort, Mode, Route, Spend, Tally, Task, TurnRecord, Who } from '../types'
 import {
   afterPlan, agreed, asideText, isModel, briefPrompt, cacheRewritten, commandText, unasked, carry, configFrom, DEFAULTS, EFFORTS, flagOn, forAgent, forNotice, fromBrief, listedAgent, managed as managedBy, versionOf,
-  midTurn, noticeOf, parse, parseRecords, prompt, promptOf, recentOf, report, reportData, sameModel, seedPrompt, SHORT, shortModel, SYSTEM, wholeRequest,
+  midTurn, noticeOf, parse, parseRecords, prompt, promptOf, recentOf, report, reportData, sameModel, seedPrompt, SHORT, shortModel, modelsSplit, SYSTEM, wholeRequest,
 } from './route'
 import type { Aside, Step } from './route'
 import { board as drawBoard, PANE, PANE_TITLE } from './board'
@@ -131,6 +131,8 @@ async function resume($: EngineInterface) {
   if (!cleared || (await $.session.id()) === cleared.from) return
   const { mode: m, pin: p, wanted: w } = cleared
   cleared = null
+  // The new conversation has not read why the pilot switches no model.
+  standKey = null
   await update($, mode, () => m)
   await update($, pin, () => p)
   await update($, wanted, () => w)
@@ -205,7 +207,12 @@ async function begin($: EngineInterface, text: string, kind: string, handBack = 
   const name = await modelOf($)
   const why = aside(name)
   if (why) $.ui.status(`effort: your own · ${asideText(name, why)}`)
-  if (!managed(name) || (await read($, pin)) !== null) return
+  const p = await read($, pin)
+  if (!managed(name) || p !== null) {
+    if (!notice) standing(name, why, p)
+    return
+  }
+  standKey = null
   await update($, who, () => (notice ? 'notification' : 'person') as Who)
   // Plan mode is the plan effort until it is left: nothing said in it is classified, and no turn in it is a control turn.
   if (await read($, planMode)) {
@@ -398,6 +405,42 @@ async function tell($: EngineInterface) {
     .catch(err => $.ui.log(`effort-pilot: ${text} (${String(err)})`))
 }
 
+/**
+ * Why the pilot switches no model asked for in words on this prompt, for the model alone: the person set the effort by
+ * hand (/effort), the pilot stands aside on the session's model, or does not steer it at all. Unsaid, the model may
+ * promise a switch that never comes, or say it cannot switch without the reason. Given once a state (standKey), with
+ * the prompt it applies to; nothing for a model not known yet.
+ */
+function standing(name: string, why: Aside | null, p: Effort | null) {
+  if (!name) return
+  const key = p ? `pin:${p}:${name}` : why ? `aside:${why}:${name}` : `model:${name}`
+  if (key === standKey) return
+  standKey = key
+  const what = p
+    ? `The person set the effort by hand (/effort ${p}), so the pilot is paused in this session: it sets no effort and switches no model asked for in words until /effort-pilot on (or /effort auto).`
+    : why
+      ? `The pilot stands aside on ${name}: effort is one setting of the whole request on it, so a change would rewrite the prompt cache. It sets no effort and switches no model asked for in words while the session is on it.`
+      : `The pilot does not steer ${name} (it steers: ${config.models.join(', ') || 'none'}): it sets no effort and switches no model asked for in words while the session is on it.`
+  stand = switchLine(`Effort Pilot: ${what} The person's /model switches the model.`, null)
+}
+// The line standing() left for the prompt it came with, and the state it was given for (null: the pilot steers).
+let stand: string | null = null
+let standKey: string | null = null
+/**
+ * The lines a routed prompt goes with, for the model: a switch's (told, also shown to the person by tell) and why no
+ * switch can be made (stand). Taking them clears them.
+ */
+async function lines($: EngineInterface) {
+  const out = [...(told ? [switchLine(told, toldOn)] : []), ...(stand ? [stand] : [])]
+  stand = null
+  await tell($)
+  return out
+}
+// A switch asked for in a message typed mid-turn: its line goes with the main loop's next tool result, the first input
+// the model reads after the request that carried the message; dropped when the turn ends (a later turn on the asked
+// model gets stillOn's line).
+let midLine: string | null = null
+
 // Measuring: a share of turns is left at the person's own effort (control), picked at random per turn; effort costs
 // no cache on these models, so mixing them in one session is fair. Every turn is kept, in the plugin's data folder
 // (store.ts: one file a day, KEEP_DAYS days kept, removed with the plugin).
@@ -529,6 +572,10 @@ async function seed($: EngineInterface, current: string) {
   if (r) await update($, task, () => ({ phase: r.phase, hard: r.hard, effort: r.effort, text: found.request }))
 }
 
+/** The line a switch typed mid-turn left (told), kept for the model's next tool result (midLine). */
+const midTold = () => {
+  if (told) midLine = midLine ? `${midLine} ${switchLine(told, toldOn)}` : switchLine(told, toldOn)
+}
 /**
  * A message typed mid-turn has reached the agent. A question or a correction about the work under way changes nothing;
  * a new task becomes the work under way and raises the turn's effort to its own (never lowers it).
@@ -542,12 +589,14 @@ async function delivered($: EngineInterface, kind: string, text: string) {
     await publish($)
     if (pick) await wantModel($, pick, { plan: true, build: false })
     await buildNote($)
+    midTold()
     await tell($)
     return
   }
   // A model asked for mid-turn takes over from the next request.
   if (pick?.model) {
     await wantModel($, pick, { plan: pick.phase === 'plan', build: false })
+    midTold()
     await tell($)
   }
   // A control turn stays at the person's own effort unless they name one now.
@@ -581,8 +630,10 @@ async function classify($: EngineInterface, text: string, count = true, notice =
   // A level read as asked holds for the whole work: read it again and keep only what both reads name. A model is read
   // again too: one read now and then misses the plan's model beside its build model.
   const again = await ask($, said, count).catch(() => ({ route: null, took: 0 }))
-  await update($, latency, () => took + again.took)
-  return agreed(r, again.route, config)
+  // One read names a model the other does not: a third read decides.
+  const third = modelsSplit(r, again.route) ? await ask($, said, count).catch(() => ({ route: null, took: 0 })) : null
+  await update($, latency, () => took + again.took + (third?.took ?? 0))
+  return agreed(r, again.route, config, third ? third.route : undefined)
 }
 
 /** The status line for a route. */
@@ -1037,11 +1088,9 @@ export const register: Register = (on, options) => {
     // A model switch this prompt asked for: the model reads that it is done (else it may say it cannot switch), and the
     // person sees the line once the prompt is in. Claude Code's system prompt still names the session's own model, so
     // the line says which model this turn runs on; a later turn on another model is told so by the classic hook below.
-    const line = told
-    lineGiven = !!line
-    const result = await next(line ? { ...e, context: [...(e.context ?? []), switchLine(line, toldOn)] } : e)
-    await tell($)
-    return result
+    lineGiven = !!told
+    const extra = await lines($)
+    return next(extra.length ? { ...e, context: [...(e.context ?? []), ...extra] } : e)
   }).catch(($, e, next) => next(e))
 
   // The engine expands the skill or prompt command the person typed: a turn of model work on their request, routed
@@ -1052,7 +1101,11 @@ export const register: Register = (on, options) => {
     if (t && e.skill === t.name) {
       typed = null
       await begin($, commandText(t.text, t.args, e.frontmatter?.description, e.text), t.kind).catch(err => $.ui.log(`effort-pilot: could not route the command: ${String(err)}`))
-      await tell($)
+      // The command's prompt is what the model reads of this turn's input: a switch's line goes with it.
+      lineGiven = !!told
+      const extra = await lines($)
+      const result = await next(e)
+      return extra.length ? { ...result, text: `${result.text}\n\n${extra.join('\n\n')}` } : result
     }
     return next(e)
   }).catch(($, e, next) => next(e))
@@ -1070,8 +1123,7 @@ export const register: Register = (on, options) => {
     if (again) {
       await begin($, again.text, again.kind, again.handBack).catch(err => $.ui.log(`effort-pilot: could not route the prompt out of plan mode: ${String(err)}`))
       // A switch the prompt asks for out of plan mode goes with it now, not stale with the next prompt.
-      if (told) extra = switchLine(told, toldOn)
-      await tell($)
+      extra = (await lines($)).join('\n\n') || null
     }
     const given = lineGiven
     lineGiven = false
@@ -1079,6 +1131,14 @@ export const register: Register = (on, options) => {
     if (!extra && !given && e.agent_id === undefined) extra = await stillOn($)
     const result = await next(e)
     return extra ? { ...result, additionalContext: [...(result.additionalContext ?? []), extra] } : result
+  }).catch(($, e, next) => next(e))
+  // A switch asked for mid-turn: the model reads its line with the main loop's next tool result.
+  on('tool.call', async ($, e, next) => {
+    const result = await next(e)
+    if (e.agentId !== undefined || !midLine || result.deny !== undefined) return result
+    const line = midLine
+    midLine = null
+    return { ...result, context: [...(result.context ?? []), line] }
   }).catch(($, e, next) => next(e))
   on('tool.call', { tool: 'ExitPlanMode' }, async ($, e, next) => {
     const result = await next(e)
@@ -1193,6 +1253,8 @@ export const register: Register = (on, options) => {
       if (!submitted && kind && e.text.trim()) {
         await begin($, e.text, kind)
         await tell($)
+        // No context reaches the model here: the line standing() left was this message's, not a later prompt's.
+        stand = null
       }
       submitted = false
       const at = await $.clock.now()
@@ -1323,6 +1385,7 @@ export const register: Register = (on, options) => {
       return result
     }
     mainTurn = null
+    midLine = null
     // A model the person asked for that the API refused (unknown, not available to them): back to the session's own,
     // once; the next turn goes there.
     const gone = refused

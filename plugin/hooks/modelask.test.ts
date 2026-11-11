@@ -2,7 +2,7 @@ import type { On } from 'claude-code'
 import { describe, expect, test } from 'claude-code/testing'
 import type { Engine } from 'claude-code/testing'
 
-import { afterPlan, agreed, briefPrompt, carry, fromBrief, isModel, MODEL_LINE, modelId, parse, prompt, SYSTEM } from './route'
+import { afterPlan, agreed, briefPrompt, carry, fromBrief, isModel, MODEL_LINE, modelId, modelsSplit, parse, prompt, SYSTEM } from './route'
 
 // A model the person asks for in words: the main loop's requests go on it for the rest of the session, until another
 // ask, their own /model or /effort-pilot off. A model named for making a plan and another for carrying it out.
@@ -23,10 +23,11 @@ const BUILD = reply({ phase: 'implement' })
  * else BUILD. Records each main-loop request's model and effort, the subagents' models, the notices, the lines added,
  * the context a prompt went with, the status lines and the turn records.
  */
-function engine(on: On, replies: Record<string, string | string[]> = {}, opts: { refuse?: string } = {}) {
+function engine(on: On, replies: Record<string, string | string[]> = {}, opts: { refuse?: string; expand?: Engine } = {}) {
   const seen = {
     session: SESSION, models: [] as string[], sent: [] as unknown[], agents: [] as string[], notices: [] as string[],
     added: [] as string[], context: [] as string[], status: [] as string[], toasts: [] as string[], files: new Map<string, string>(),
+    skill: null as string | null,
   }
   const records = () => [...seen.files.values()].flatMap(t => t.split('\n').filter(Boolean)).map(l => JSON.parse(l) as Record<string, unknown>)
   const calls = new Map<string, number>()
@@ -44,8 +45,10 @@ function engine(on: On, replies: Record<string, string | string[]> = {}, opts: {
     calls.set(key ?? '', n + 1)
     return { value: { isAnswered: true, text: Array.isArray(r) ? r[n % r.length]! : r, usage } }
   })
-  on('prompt.submit', (_$, e) => {
+  on('prompt.submit', async (_$, e) => {
     seen.context.push(...(e.context ?? []))
+    // A command the engine expands beneath: the prompt the model reads for it.
+    if (e.command && opts.expand) seen.skill = (await opts.expand.skill.prompt({ skill: e.command.name, text: 'Review the change.', frontmatter: {} } as never)).text
     return { text: e.text }
   })
   on('ui.status', (_$, e) => {
@@ -68,6 +71,7 @@ function engine(on: On, replies: Record<string, string | string[]> = {}, opts: {
   on('ui.log', () => ({ value: undefined }))
   on('ui.render', () => ({ type: 'Box', children: [] }) as never)
   on('command.run', () => ({ text: '' }))
+  on('skill.prompt', (_$, e) => ({ text: e.text }))
   on('classic.UserPromptSubmit', () => ({}) as never)
   on('session.append', (_$, e, next) => {
     const text = e.message.content.map(b => (b.type === 'text' ? b.text : '')).join('')
@@ -143,6 +147,11 @@ describe('the classifier\'s model fields', () => {
     expect(briefPrompt('Explore', 'map', 'Find the routes.', null)).not.toContain(MODEL_LINE)
     expect(SYSTEM).not.toContain('buildModel')
   })
+  test('text the person dictates or quotes for a file, a commit or a reply is read as content to write, not an ask', () => {
+    expect(MODEL_LINE).toContain('Nor is text the person hands the agent to write into a file, the README, docs, a commit message, an issue or a reply, quoted or not')
+    expect(MODEL_LINE).toContain('There model, buildModel, asked and build are none, and the phase is the edit, not a plan.')
+    expect(prompt('In the README, replace the example with: plan this on fable at high, then build on opus at medium', null, null, '')).toContain(MODEL_LINE)
+  })
   test('a reply with a dangling comma before its closing brace still parses', () => {
     expect(parse('{"phase":"analyze","hard":false,"why":"a verdict","}')?.phase).toBe('analyze')
   })
@@ -150,16 +159,23 @@ describe('the classifier\'s model fields', () => {
     const r = parse(reply({ phase: 'plan', model: 'fable 5.1', buildModel: 'sonnet', build: 'high' }))
     expect(r).toEqual(expect.objectContaining({ phase: 'plan', model: 'claude-fable-5-1', buildModel: 'sonnet', build: 'high' }))
   })
-  test('two reads keep a model either names, drop two different ones; no second read leaves the first', () => {
+  test('two reads keep a model both name and drop two different ones; no second read leaves the first', () => {
     const a = parse(reply({ phase: 'chat', model: 'sonnet', asked: 'medium' }))!
     expect(agreed(a, parse(reply({ phase: 'chat', model: 'sonnet', asked: 'medium' })))?.model).toBe('sonnet')
-    expect(agreed(a, parse(reply({ phase: 'chat', asked: 'medium' })))?.model).toBe('sonnet')
     expect(agreed(a, parse(reply({ phase: 'chat', model: 'haiku', asked: 'medium' })))?.model).toBe(undefined)
     expect(agreed(a, null).model).toBe('sonnet')
-    const p = parse(reply({ phase: 'plan', buildModel: 'sonnet' }))!
-    expect(agreed(p, parse(reply({ phase: 'plan' })))?.buildModel).toBe('sonnet')
-    expect(agreed(p, parse(reply({ phase: 'plan', model: 'fable', buildModel: 'sonnet' }))))
-      .toEqual(expect.objectContaining({ model: 'fable', buildModel: 'sonnet' }))
+  })
+  test('when one read names a model and the other none, a third read decides; with no third, the model stands', () => {
+    const named = parse(reply({ phase: 'plan', model: 'fable', buildModel: 'sonnet' }))!
+    const missed = parse(reply({ phase: 'plan', buildModel: 'sonnet' }))!
+    expect(modelsSplit(named, missed)).toBe(true)
+    expect(modelsSplit(named, named)).toBe(false)
+    expect(modelsSplit(named, null)).toBe(false)
+    expect(agreed(missed, named, undefined, named)).toEqual(expect.objectContaining({ model: 'fable', buildModel: 'sonnet' }))
+    expect(agreed(named, missed, undefined, missed).model).toBe(undefined)
+    expect(agreed(named, missed, undefined, missed).buildModel).toBe('sonnet')
+    expect(agreed(named, missed, undefined, null).model).toBe('fable')
+    expect(agreed(named, missed).model).toBe('fable')
   })
   test('a subagent\'s brief asks for no model', () => {
     const r = fromBrief(parse(reply({ phase: 'implement', model: 'haiku', buildModel: 'sonnet' }))!)
@@ -219,7 +235,7 @@ test('on a model the pilot manages, the effort is routed turn by turn', async ($
   expect(seen.status.at(-1)).toBe('effort: low chat · fable-5-1')
 })
 
-test('a model one of the two reads misses is still taken; two different models are not', async ($, on) => {
+test('a model one of the two reads misses is taken when a third read names it; two different models are not', async ($, on) => {
   const seen = engine(on, {
     'switch me to sonnet': [SONNET_MEDIUM, reply({ phase: 'chat', asked: 'medium' })],
     'switch to haiku': [reply({ phase: 'chat', model: 'haiku' }), reply({ phase: 'chat', model: 'fable' })],
@@ -231,9 +247,9 @@ test('a model one of the two reads misses is still taken; two different models a
   expect(seen.models).toEqual(['sonnet', SESSION, SESSION])
 })
 
-test('a model asked with no effort is read twice, and a plan model one read misses is kept', async ($, on) => {
+test('a model asked with no effort is read twice, and a plan model one read misses is kept when a third read names it', async ($, on) => {
   const seen = engine(on, {
-    'plan adding hello.txt': [reply({ phase: 'plan', buildModel: 'sonnet' }), reply({ phase: 'plan', model: 'fable', buildModel: 'sonnet' })],
+    'plan adding hello.txt': [reply({ phase: 'plan', buildModel: 'sonnet' }), reply({ phase: 'plan', model: 'fable', buildModel: 'sonnet' }), reply({ phase: 'plan', model: 'fable', buildModel: 'sonnet' })],
   })
   await said($, 'plan adding hello.txt on fable, then implement on sonnet', 'plan')
   expect(seen.models).toEqual(['fable'])
@@ -437,4 +453,93 @@ describe('what a switch tells the person and the model', () => {
     await step($, id, 1)
     expect(seen.toasts).toEqual(['Effort Pilot: carrying out the plan on sonnet at medium'])
   })
+})
+
+const NOTE = 'A note from the Effort Pilot plugin; nothing to do for it now. '
+
+describe('where the pilot switches no model, the model reads why', () => {
+  test('with the effort set by hand, the first prompt after it says the pilot is paused, once, and no switch is made', async ($, on) => {
+    const seen = engine(on, { 'switch me to sonnet': SONNET_MEDIUM })
+    await run($, 'effort', 'high')
+    await said($, 'switch me to sonnet at medium')
+    await said($, 'Add an export button to the reports page.')
+    expect(seen.models).toEqual([SESSION, SESSION])
+    expect(seen.notices).toEqual([])
+    expect(seen.context).toEqual([`${NOTE}Effort Pilot: The person set the effort by hand (/effort high), so the pilot is paused in this session: it sets no effort and switches no model asked for in words until /effort-pilot on (or /effort auto). The person's /model switches the model.`])
+  })
+  test('another level set by hand says so again; once the pilot is back, nothing is said', async ($, on) => {
+    const seen = engine(on)
+    await run($, 'effort', 'high')
+    await said($, 'Add an export button to the reports page.')
+    await run($, 'effort', 'low')
+    await said($, 'Add a print button to the reports page.')
+    await run($, 'effort', 'auto')
+    await said($, 'Add a share button to the reports page.')
+    expect(seen.context).toHaveLength(2)
+    expect(seen.context[1]).toContain('(/effort low)')
+  })
+  test('on a model the pilot does not steer, the first prompt says so, once', async ($, on) => {
+    const seen = engine(on, { 'switch to opus': reply({ phase: 'chat', model: 'opus' }) })
+    seen.session = 'claude-sonnet-5'
+    await said($, 'switch to opus')
+    await said($, 'Add an export button to the reports page.')
+    expect(seen.models).toEqual([SESSION, SESSION])
+    expect(seen.context).toEqual([`${NOTE}Effort Pilot: The pilot does not steer claude-sonnet-5 (it steers: opus, fable): it sets no effort and switches no model asked for in words while the session is on it. The person's /model switches the model.`])
+  })
+  test('on a model where effort is one setting of the whole request, the first prompt says the pilot stands aside', async ($, on) => {
+    const seen = engine(on)
+    seen.session = 'claude-opus-4-6'
+    await said($, 'switch to sonnet')
+    expect(seen.context).toEqual([`${NOTE}Effort Pilot: The pilot stands aside on claude-opus-4-6: effort is one setting of the whole request on it, so a change would rewrite the prompt cache. It sets no effort and switches no model asked for in words while the session is on it. The person's /model switches the model.`])
+  })
+  test('a queued message that starts a turn of its own leaves no line of why no switch is made for a later prompt', async ($, on) => {
+    const seen = engine(on)
+    await run($, 'effort', 'high')
+    const id = await turn($, 'Add a share button to the reports page.')
+    seen.context.length = 0
+    await $.prompt.submit({ text: 'Add an export button to the reports page.', turnId: id, origin: { kind: 'composer' } } as never)
+    await complete($, id)
+    await run($, 'effort', 'low')
+    await $.turn.start({ text: 'Add an export button to the reports page.', turnId: 'queued1' })
+    await complete($, 'queued1')
+    await said($, 'Add a print button to the reports page.')
+    expect(seen.context).toEqual([])
+  })
+  test('a switch typed mid-turn: the model reads its line with the next tool result, and the person sees it', async ($, on) => {
+    const seen = engine(on, { 'switch me to sonnet': SONNET_MEDIUM })
+    const id = await turn($, 'Add an export button to the reports page.')
+    await $.prompt.submit({ text: 'switch me to sonnet at medium', turnId: id, origin: { kind: 'composer' } } as never)
+    await step($, id, 1)
+    const r = await $.tool.call({ tool: 'Bash', command: 'ls', tool_use_id: 'tu2' } as never) as { context?: string[] }
+    const later = await $.tool.call({ tool: 'Bash', command: 'ls', tool_use_id: 'tu3' } as never) as { context?: string[] }
+    expect(seen.models).toEqual([SESSION, 'sonnet'])
+    expect(r.context).toEqual([`${ON_SONNET} ${SWITCHED}`])
+    expect(later.context).toBe(undefined)
+    expect(seen.notices).toEqual([SWITCHED])
+  })
+  test('a switch typed mid-turn whose turn ends before a tool runs leaves no line for later', async ($, on) => {
+    engine(on, { 'switch me to sonnet': SONNET_MEDIUM })
+    const id = await turn($, 'Add an export button to the reports page.')
+    await $.prompt.submit({ text: 'switch me to sonnet at medium', turnId: id, origin: { kind: 'composer' } } as never)
+    await step($, id, 1)
+    await complete($, id)
+    const r = await $.tool.call({ tool: 'Bash', command: 'ls', tool_use_id: 'tu2' } as never) as { context?: string[] }
+    expect(r.context).toBe(undefined)
+  })
+  test('a switch asked in a slash command\'s arguments goes with the command\'s prompt the model reads', async ($, on) => {
+    const seen = engine(on, { 'switch me to sonnet': SONNET_MEDIUM }, { expand: $ })
+    await $.prompt.submit({ text: '/review switch me to sonnet at medium', command: { name: 'review', args: 'switch me to sonnet at medium' }, origin: { kind: 'composer' } } as never)
+    expect(seen.skill).toBe(`Review the change.\n\n${ON_SONNET} ${SWITCHED}`)
+    expect(seen.notices).toEqual([SWITCHED])
+  })
+})
+
+test('a model only one read takes from text to be written, and a third read does not, is not switched to', async ($, on) => {
+  const text = 'In the README, replace the example with: plan this on fable at high, then build on opus at medium'
+  const wrong = reply({ phase: 'plan', model: 'fable', buildModel: 'opus' })
+  const right = reply({ phase: 'trivial' })
+  const seen = engine(on, { 'In the README, replace the example': [wrong, right, right] })
+  await said($, text)
+  expect(seen.models).toEqual([SESSION])
+  expect(seen.toasts.some(t => t.includes('fable'))).toBe(false)
 })

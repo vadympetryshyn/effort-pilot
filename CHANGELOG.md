@@ -2,6 +2,13 @@
 
 All notable changes. Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions: [SemVer](https://semver.org/).
 
+## [1.12.2] — 2026-11-11
+
+- Text you ask the agent to write is no longer read as an ask. A sentence you dictate or quote for a file, the README, docs, a commit message, release notes, an issue or a reply to post ("in the README, replace the example with: plan this on Fable at high, then build on Opus at medium") used to switch the model, and could set the effort, because it names a model and a level. Such text is now the content to write: it switches no model and asks for no level, quoted or not. A model or level you name for the agent's own work beside such an edit still counts ("plan this on Fable at high, then edit the README").
+- When one of the two reads of a message names a model and the other names none, a third read now decides; it used to take the model at once. A single misread no longer switches you to a model you only wrote about, and a plan model one read misses is still taken when the third read names it. With no third answer (a timeout), the model one read named still stands.
+- Where Effort Pilot switches no model you name in words, the model is now told why, once, so it neither promises a switch nor says it cannot switch without the reason: with the effort set by hand (`/effort high`, until `/effort-pilot on` or `/effort auto`), on a model the pilot does not steer (Sonnet and Haiku by default), and on one where it stands aside (effort is one setting of the whole request there). The line says that `/model` switches the model.
+- A switch of model typed while the agent works, or named in a slash command's arguments, now reaches the model too. Mid-turn, its line goes with the next tool result the model reads; with a slash command, with the command's prompt. Both used to show only a notice to you, so the model could still say it cannot switch.
+
 ## [1.12.1] — 2026-11-11
 
 - When you switch the model in words, a toast now says so: it names where your requests go and at what effort ("Effort Pilot: now on sonnet at low", "Effort Pilot: back on claude-opus-5-5 at high"). It is the only toast for that message: the effort toast no longer fires beside it, which used to show an effort change and say nothing of the model. A model the API refuses now gets a toast too, beside its line and the status line.
