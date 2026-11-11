@@ -1,5 +1,6 @@
 import type { On } from 'claude-code'
-import { expect, test } from 'claude-code/testing'
+import { expect } from 'claude-code/testing'
+import { test } from './testkit'
 import type { Engine } from 'claude-code/testing'
 
 // Where effort is one setting of the whole request (older models, a provider other than Anthropic's API, a numeric

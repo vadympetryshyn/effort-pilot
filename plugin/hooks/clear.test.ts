@@ -1,5 +1,6 @@
 import type { On } from 'claude-code'
-import { expect, test } from 'claude-code/testing'
+import { expect } from 'claude-code/testing'
+import { test } from './testkit'
 import type { Engine } from 'claude-code/testing'
 
 // After /clear the process goes on under a new session id: the plugin's state starts empty, and no session.start

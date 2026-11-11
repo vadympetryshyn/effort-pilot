@@ -1,4 +1,5 @@
-import { describe, expect, test } from 'claude-code/testing'
+import { describe, expect } from 'claude-code/testing'
+import { test } from './testkit'
 
 import type { Route, Spend, Task, TurnRecord } from '../types'
 import { afterPlan, agreed, briefPrompt, cacheRewritten, carry, configFrom, DEFAULTS, effortFor, flagOn, forAgent, forNotice, managed, midTurn, NO_ULTRATHINK_LINE, noticeOf, parse, parseRecords, perMessage, prompt, report, reportData, sameModel, seedPrompt, short, SYSTEM, wholeRequest } from './route'

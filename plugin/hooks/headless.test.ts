@@ -1,5 +1,6 @@
 import type { On } from 'claude-code'
-import { expect, test } from 'claude-code/testing'
+import { expect } from 'claude-code/testing'
+import { test } from './testkit'
 import type { Engine } from 'claude-code/testing'
 
 const reply = '{"phase":"analyze","hard":false,"continues":false,"asked":"none","build":"none","faulted":false,"why":"look into it"}'

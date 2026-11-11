@@ -1,5 +1,6 @@
 import type { On } from 'claude-code'
-import { describe, expect, test } from 'claude-code/testing'
+import { describe, expect } from 'claude-code/testing'
+import { test } from './testkit'
 import type { Engine } from 'claude-code/testing'
 
 // A subagent on the session's model inherits the session's effort, so another effort there was chosen for it. One on

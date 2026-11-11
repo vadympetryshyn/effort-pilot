@@ -1,5 +1,6 @@
 import type { On } from 'claude-code'
-import { expect, test } from 'claude-code/testing'
+import { expect } from 'claude-code/testing'
+import { test } from './testkit'
 import type { Engine } from 'claude-code/testing'
 
 import { DAY, KEEP_DAYS, slotFile } from './store'

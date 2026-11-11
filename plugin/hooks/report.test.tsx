@@ -1,5 +1,6 @@
 import type { On } from 'claude-code'
-import { describe, expect, test } from 'claude-code/testing'
+import { describe, expect } from 'claude-code/testing'
+import { test } from './testkit'
 
 import type { TurnRecord } from '../types'
 import { report, reportData, turnCost } from './route'

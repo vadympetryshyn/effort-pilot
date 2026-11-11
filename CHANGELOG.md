@@ -2,6 +2,10 @@
 
 All notable changes. Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions: [SemVer](https://semver.org/).
 
+## [1.12.4] — 2026-11-11
+
+- Tests only, no change to the plugin: each test now gets 30 seconds instead of the test kit's 5-second default, so the suite holds on a heavily loaded machine. A test that sets its own timeout keeps it.
+
 ## [1.12.3] — 2026-11-11
 
 - A switch of model typed while the agent works now reaches the model with your message itself. Since 1.12.2 its line went with the next tool result, so a reply that ran no tool first could still say it cannot switch, though the request already went on the model you named. The message is now read when you send it: the switch is made then and its line goes with the message. Reading it takes a second or two before the message is queued; if the agent's next request starts in that time, the message reaches the model one request later, as it would have if typed a moment later.

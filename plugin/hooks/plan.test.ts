@@ -1,5 +1,6 @@
 import type { On } from 'claude-code'
-import { expect, test } from 'claude-code/testing'
+import { expect } from 'claude-code/testing'
+import { test } from './testkit'
 import type { Engine } from 'claude-code/testing'
 
 // Claude Code takes a new effort only on a request with new input: a step whose only new input is tool results keeps
