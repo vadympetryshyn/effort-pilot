@@ -407,16 +407,17 @@ export function fromBrief(pick: Route, config: Config = DEFAULTS): Route {
  * asked level holds for every follow-up of the work, so one misread would run a whole piece of work at it. The first
  * read is the route; it keeps only what both reads name: the lower asked level and the lower build level (a read that
  * names none counts lowest, so the level is dropped), and a release only when both read one. A model (to work on now, or
- * to build on) is kept only when both reads name the same one. With no second read (a timeout, no answer), the first
- * stands: an outage must not swallow a real ask.
+ * to build on) is read twice too, but a read that misses it is no veto: it is kept when either read names it, and dropped
+ * only when the two name different models. With no second read (a timeout, no answer), the first stands: an outage must
+ * not swallow a real ask.
  */
 export function agreed(first: Route, second: Route | null, config: Config = DEFAULTS): Route {
   if (!second) return first
   const lower = (a?: Effort, b?: Effort) => (a && b ? (RANK[a] <= RANK[b] ? a : b) : undefined)
   const levels = { asked: lower(first.asked, second.asked), build: lower(first.build, second.build), release: !!first.release && !!second.release }
-  // A model is taken only where both reads name the same one.
-  const same = (a?: string, b?: string) => (a && b && a === b ? a : undefined)
-  const models = { model: same(first.model, second.model), buildModel: same(first.buildModel, second.buildModel) }
+  // A model named by either read is taken; two reads that name different models drop it.
+  const either = (a?: string, b?: string) => (a && b ? (a === b ? a : undefined) : (a ?? b))
+  const models = { model: either(first.model, second.model), buildModel: either(first.buildModel, second.buildModel) }
   if (levels.asked === first.asked && levels.build === first.build && levels.release === !!first.release
     && models.model === first.model && models.buildModel === first.buildModel) return first
   return { ...withLevels(first, levels, config), ...(models.model ? { model: models.model } : {}), ...(models.buildModel ? { buildModel: models.buildModel } : {}) }

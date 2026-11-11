@@ -204,6 +204,13 @@ declare module 'claude-code' {
       task: Shaped<Task | null>
       /** What the next request goes at, for other plugins to show: null when the pilot is not setting it. Its shape (effective-1) is read by other plugins: keep it. */
       effective: Shaped<{ effort: Effort; source: 'auto' | 'pinned' } | null>
+      /**
+       * The model the next main-loop request goes on, for other plugins to show, where the pilot sends it on another
+       * model than the session's: one the person asked for in words (asked), one asked for making a plan (plan), or the
+       * planModeModel setting in plan mode (setting); an alias or a full id. Null: the session's own model. Its shape
+       * (effective-model-1) is read by other plugins: keep it.
+       */
+      effectiveModel: Shaped<{ model: string; source: 'asked' | 'plan' | 'setting' } | null>
       /** Classifier spend since the last main-loop turn ended; folded into that turn's record. */
       spend: Shaped<Spend>
       /** Plan mode was on at some point of this main-loop turn: the turn records as a plan. */

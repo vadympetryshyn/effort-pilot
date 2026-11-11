@@ -141,14 +141,16 @@ describe('the classifier\'s model fields', () => {
     const r = parse(reply({ phase: 'plan', model: 'fable 5.1', buildModel: 'sonnet', build: 'high' }))
     expect(r).toEqual(expect.objectContaining({ phase: 'plan', model: 'claude-fable-5-1', buildModel: 'sonnet', build: 'high' }))
   })
-  test('two reads keep a model only when both name the same one; no second read leaves the first', () => {
+  test('two reads keep a model either names, drop two different ones; no second read leaves the first', () => {
     const a = parse(reply({ phase: 'chat', model: 'sonnet', asked: 'medium' }))!
     expect(agreed(a, parse(reply({ phase: 'chat', model: 'sonnet', asked: 'medium' })))?.model).toBe('sonnet')
-    expect(agreed(a, parse(reply({ phase: 'chat', asked: 'medium' })))?.model).toBe(undefined)
+    expect(agreed(a, parse(reply({ phase: 'chat', asked: 'medium' })))?.model).toBe('sonnet')
     expect(agreed(a, parse(reply({ phase: 'chat', model: 'haiku', asked: 'medium' })))?.model).toBe(undefined)
     expect(agreed(a, null).model).toBe('sonnet')
     const p = parse(reply({ phase: 'plan', buildModel: 'sonnet' }))!
-    expect(agreed(p, parse(reply({ phase: 'plan' })))?.buildModel).toBe(undefined)
+    expect(agreed(p, parse(reply({ phase: 'plan' })))?.buildModel).toBe('sonnet')
+    expect(agreed(p, parse(reply({ phase: 'plan', model: 'fable', buildModel: 'sonnet' }))))
+      .toEqual(expect.objectContaining({ model: 'fable', buildModel: 'sonnet' }))
   })
   test('a subagent\'s brief asks for no model', () => {
     const r = fromBrief(parse(reply({ phase: 'implement', model: 'haiku', buildModel: 'sonnet' }))!)
@@ -208,11 +210,26 @@ test('on a model the pilot manages, the effort is routed turn by turn', async ($
   expect(seen.status.at(-1)).toBe('effort: low chat · fable-5-1')
 })
 
-test('a model named by only one of the two reads is not taken', async ($, on) => {
-  const seen = engine(on, { 'switch me to sonnet': [SONNET_MEDIUM, reply({ phase: 'chat', asked: 'medium' })] })
+test('a model one of the two reads misses is still taken; two different models are not', async ($, on) => {
+  const seen = engine(on, {
+    'switch me to sonnet': [SONNET_MEDIUM, reply({ phase: 'chat', asked: 'medium' })],
+    'switch to haiku': [reply({ phase: 'chat', model: 'haiku' }), reply({ phase: 'chat', model: 'fable' })],
+    'back to opus': BACK,
+  })
   await said($, 'switch me to sonnet at medium')
-  expect(seen.models).toEqual([SESSION])
-  expect(seen.notices).toEqual([])
+  await said($, 'back to opus')
+  await said($, 'switch to haiku')
+  expect(seen.models).toEqual(['sonnet', SESSION, SESSION])
+})
+
+test('a model asked with no effort is read twice, and a plan model one read misses is kept', async ($, on) => {
+  const seen = engine(on, {
+    'plan adding hello.txt': [reply({ phase: 'plan', buildModel: 'sonnet' }), reply({ phase: 'plan', model: 'fable', buildModel: 'sonnet' })],
+  })
+  await said($, 'plan adding hello.txt on fable, then implement on sonnet', 'plan')
+  expect(seen.models).toEqual(['fable'])
+  expect(seen.notices[0]).toContain('planning on fable')
+  expect(seen.notices[0]).toContain('carried out on sonnet')
 })
 
 test('a subagent\'s requests keep their own model', async ($, on) => {

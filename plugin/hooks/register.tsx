@@ -59,6 +59,7 @@ const planMode = atom({ plugin: 'effort-pilot', key: 'planMode' } as const, fals
 const NONE: Spend = { calls: 0, input: 0, out: 0, cacheRead: 0, cacheWrite: 0, ms: 0 }
 const spend = atom({ plugin: 'effort-pilot', key: 'spend' } as const, NONE, { shape: 'spend-1' })
 const effective = atom({ plugin: 'effort-pilot', key: 'effective' } as const, null, { shape: 'effective-1' })
+const effectiveModel = atom({ plugin: 'effort-pilot', key: 'effectiveModel' } as const, null, { shape: 'effective-model-1' })
 const who = atom({ plugin: 'effort-pilot', key: 'who' } as const, 'person' as Who | null)
 const agents = atom({ plugin: 'effort-pilot', key: 'agents' } as const, [], { shape: 'agents-1' })
 // The effort in effect on the wire. Claude Code takes a new effort only on a request that carries new input (a
@@ -91,16 +92,22 @@ async function planModel($: EngineInterface, name: string): Promise<string | und
   if (!managed(name) || sameModel(name, config.planModel)) return undefined
   return config.planModel
 }
+/** A model the main loop's requests go on instead of the session's, and why: asked in words, asked for the plan, the setting. */
+type Alt = { model: string; source: 'asked' | 'plan' | 'setting' }
 /**
  * The model the main loop's next request goes on, where not the session's own (name): in plan mode a model the person
  * asked for the plan, else the plan-mode model; otherwise the model the person asked for. The person's words beat the
  * setting. Undefined: the session's own model.
  */
-async function altModel($: EngineInterface, name: string): Promise<string | undefined> {
+async function altOf($: EngineInterface, name: string): Promise<Alt | undefined> {
   const w = (await read($, mode)) === 'auto' ? await read($, wanted) : null
-  const pick = w?.plan && (await read($, planMode)) ? w.model : ((await planModel($, name)) ?? w?.model)
-  return pick && !isModel(pick, name) ? pick : undefined
+  const set = await planModel($, name)
+  const pick: Alt | undefined = w?.plan && (await read($, planMode)) ? { model: w.model, source: 'plan' }
+    : set ? { model: set, source: 'setting' }
+    : w ? { model: w.model, source: w.plan ? 'plan' : 'asked' } : undefined
+  return pick && !isModel(pick.model, name) ? pick : undefined
 }
+const altModel = async ($: EngineInterface, name: string) => (await altOf($, name))?.model
 /** Effort is one setting of the whole request on this model: a switch there would rewrite the prompt cache. */
 const wholeOn = (m: string) => rewrites.has(m) || wholeRequest(m, firstParty !== false, sessionEffort) !== null
 /**
@@ -127,12 +134,26 @@ async function resume($: EngineInterface) {
   await update($, mode, () => m)
   await update($, pin, () => p)
   await update($, wanted, () => w)
+  // Other plugins show the carried model and effort from the new conversation's start, not from its first prompt.
+  await modelOf($)
+  await publish($)
 }
-/** Publish the effort the next request goes at, or null when the person's own setting stands. */
+/**
+ * Publish for other plugins what the next main-loop request goes at and on: the effort, or null when the person's own
+ * setting stands; the model, or null when it goes on the session's own.
+ */
 async function publish($: EngineInterface) {
-  const effort = await aim($, await read($, model), true)
+  const name = await read($, model)
+  await shown($, await aim($, name, true), await altOf($, name), true)
+}
+/** Write what the published atoms say: always, or (a request's own check) only where it changed. */
+async function shown($: EngineInterface, effort: Effort | undefined, alt: Alt | undefined, always = false) {
   const p = await read($, pin)
-  await update($, effective, () => (effort ? { effort, source: p ? 'pinned' as const : 'auto' as const } : null))
+  const e = effort ? { effort, source: p ? 'pinned' as const : 'auto' as const } : null
+  const was = await read($, effective)
+  if (always || was?.effort !== e?.effort || was?.source !== e?.source) await update($, effective, () => e)
+  const on = await read($, effectiveModel)
+  if (always || on?.model !== alt?.model || on?.source !== alt?.source) await update($, effectiveModel, () => (alt ? { ...alt } : null))
 }
 /**
  * Keep the engine's plan-mode fact. Plan mode is the plan effort, whole: entering it makes the work a plan (the band shows it),
@@ -515,11 +536,12 @@ async function noUltrathink($: EngineInterface) {
 async function classify($: EngineInterface, text: string, count = true, notice = false, midTurn = false): Promise<Route | null> {
   const said = prompt(text, await read($, task), await read($, route), await read($, lastAnswer), notice, midTurn, await noUltrathink($))
   const { route: r, took } = await ask($, said, count)
-  if (!r?.asked && !r?.build && !r?.release) {
+  if (!r?.asked && !r?.build && !r?.release && !r?.model && !r?.buildModel) {
     await update($, latency, () => took)
     return r
   }
-  // A level read as asked holds for the whole work: read it again and keep only what both reads name.
+  // A level read as asked holds for the whole work: read it again and keep only what both reads name. A model is read
+  // again too: one read now and then misses the plan's model beside its build model.
   const again = await ask($, said, count).catch(() => ({ route: null, took: 0 }))
   await update($, latency, () => took + again.took)
   return agreed(r, again.route, config)
@@ -834,8 +856,10 @@ export const register: Register = (on, options) => {
   })
 
   // The main loop's agent in a session started with --agent: the classic event names it on the main thread (no agent_id).
+  // After a /clear it is the new conversation's first event: the person's choice carried over is taken back there.
   on('classic.SessionStart', async ($, e, next) => {
     if (e.agent_id === undefined) mainAgent = e.agent_type ?? ''
+    if (e.source === 'clear') await resume($)
     return next(e)
   }).catch(($, e, next) => next(e))
 
@@ -930,8 +954,9 @@ export const register: Register = (on, options) => {
     const before = await read($, model)
     const result = await next(e)
     const name = (await $.session.model()) ?? ''
-    // The person's own pick of the session's model ends a model asked for in words.
-    if (!sameModel(before, name)) await update($, wanted, () => null)
+    // The person's own pick of the session's model ends a model asked for in words: a model they name (the session's
+    // own too, to come back to it), or a change of model.
+    if (e.args.trim() || !sameModel(before, name)) await update($, wanted, () => null)
     await update($, model, () => name)
     await publish($)
     return result
@@ -1193,8 +1218,11 @@ export const register: Register = (on, options) => {
     // A number is the person's own effort: it goes as they set it.
     const effort = typeof e.effort === 'string' ? await aim($, e.model) : undefined
     // Plan mode's model, or one the person asked for: e.model stays the session's own on every step.
-    const alt = await altModel($, e.model)
+    const other = await altOf($, e.model)
+    const alt = other?.model
     const goes = alt ?? e.model
+    // Other plugins show what this request goes at and on (a turn the pilot does not route goes at the person's own).
+    await shown($, effort, other)
     const asked = alt !== undefined && (await read($, wanted))?.model === alt
     lastModel = goes
     const began = await $.clock.now()
