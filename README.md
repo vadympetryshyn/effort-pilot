@@ -16,9 +16,9 @@ Effort Pilot switches the reasoning effort for every turn, automatically: plans 
 
 Compared with leaving effort on `high` all the time, on the author's own turns:
 
-<img src="assets/why-4.svg" alt="Effort Pilot vs. always-on high: quick questions answered about twice as fast, up to 10% fewer tokens, effort set every turn without /effort" width="820">
+<img src="assets/why-4.svg" alt="Effort Pilot vs. always-on high: quick questions answered up to twice as fast, up to 10% fewer tokens, effort set every turn without /effort" width="820">
 
-- **Quick answers, about twice as fast.** A question or a chat turn runs at `low`: its median model time is about half of what it is at `high` (−52%, 90% range −22% … −68%).
+- **Quick answers, up to twice as fast.** A question or a chat turn runs at `low`: its median model time is about a third shorter than at `high`, and up to half (−37%, 90% range −1% … −60%).
 - **Plans lose nothing.** Plans and plan mode run at `high`, the same depth as always-on `high`; set `planEffort` to `xhigh` or `max` for more.
 - **Up to 10% fewer tokens.** Every turn that drops from `high` to `medium` or `low` thinks less, so it spends fewer tokens. How much you save depends on your settings: the more levels you set below `high`, the more you save.
 - **Nothing to switch.** You never type `/effort`; the line above the prompt shows what it picked and why.
