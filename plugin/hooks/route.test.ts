@@ -74,6 +74,36 @@ describe('carry', () => {
     expect(carry(task('plan', 'xhigh'), route('implement', 'high', { hard: true, continues: true }), 'go').route.effort).toBe('medium')
     expect(carry(task('analyze', 'high'), route('fix', 'high', { hard: true, continues: true }), 'fix it').route.effort).toBe('high')
   })
+  test('pushback on a plan read as a hard fix keeps the plan and its effort', () => {
+    const r = carry(task('plan', 'high'), route('fix', 'high', { hard: true, continues: true, faulted: true }), 'you misread it: I want it built into the existing jobs, not a one-off')
+    expect(r.route.effort).toBe('high')
+    expect(r.route.phase).toBe('plan')
+    expect(r.route.kept).toBe(true)
+    expect(r.task.phase).toBe('plan')
+    expect(r.task.text).toBe('the work')
+    expect(carry(r.task, route('trivial', 'low', { continues: true }), 'go on').route.effort).toBe('high')
+  })
+  test('a build after a plan that does not say the plan fell short still takes the build effort', () => {
+    const r = carry(task('plan', 'high'), route('implement', 'medium', { continues: true }), 'looks good, build it')
+    expect(r.route.effort).toBe('medium')
+    expect(r.task.phase).toBe('implement')
+  })
+  test('pushback on an analysis read as a fix keeps the analysis and its effort', () => {
+    const r = carry(task('analyze', 'high'), route('fix', 'medium', { continues: true, faulted: true }), 'that is not the cause, look again')
+    expect(r.route.effort).toBe('high')
+    expect(r.task.phase).toBe('analyze')
+  })
+  test('pushback on a plan that names an effort goes at that effort', () => {
+    const r = carry(task('plan', 'high'), route('fix', 'low', { continues: true, faulted: true, asked: 'low' }), 'wrong approach, redo it on low')
+    expect(r.route.effort).toBe('low')
+  })
+  test('pushback on a plan whose pick is above the plan\'s effort goes at the pick\'s effort', () => {
+    const c = configFrom({ hardBuildEffort: 'xhigh' })
+    const r = carry(task('plan', 'high'), route('fix', 'xhigh', { hard: true, continues: true, faulted: true }), 'this plan misses the hard part entirely', c)
+    expect(r.route.effort).toBe('xhigh')
+    expect(r.task.phase).toBe('plan')
+    expect(r.task.effort).toBe('xhigh')
+  })
   test('a side question gets its own effort and keeps the work under way', () => {
     const r = carry(task('analyze', 'high'), route('chat', 'low', { continues: false }), 'what is a mutex?')
     expect(r.route.effort).toBe('low')

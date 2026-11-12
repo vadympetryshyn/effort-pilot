@@ -298,6 +298,8 @@ export function unasked(task: Task, config: Config = DEFAULTS): Task {
  * - a question about the work (chat) takes its own effort and leaves the work under way in place: about a build, answering
  *   it builds nothing; about a plan or an analysis, its answer is in the work so far, while one that needs new reasoning
  *   comes as analyze and one that says the work fell short as faulted, and both keep the work's effort;
+ * - pushback on a plan or an analysis (faulted, even when it reads as a fix or a build) redoes that thinking: the work
+ *   stays, at the higher of its effort and the pick's, never the build effort of carrying a plan out;
  * - a word to go on ("done", "ok", "continue": trivial) keeps the work's effort, a build's as a plan's: the agent goes on
  *   with that work;
  * - a side question or a closing word takes its own effort and leaves the work under way in place;
@@ -321,8 +323,8 @@ export function carry(task: Task | null, pick: Route, text: string, config: Conf
     return { route: { ...pick, why: `${pick.why} (a question about the build: its own effort)` }, task }
   }
   // A question about thinking work (plan, analyze) takes its own effort too: its answer is already in that work. A
-  // follow-up that needs new reasoning comes as analyze, pushback on the work as faulted, and a word to go on
-  // ("continue") as trivial: those keep the work's effort below.
+  // follow-up that needs new reasoning comes as analyze, pushback on the work as faulted (whatever phase it reads as),
+  // and a word to go on ("continue") as trivial: those keep the work's effort below.
   if (pick.continues && pick.phase === 'chat' && !pick.faulted && THINK.includes(task.phase)) {
     return { route: { ...pick, why: `${pick.why} (a question about the ${task.phase}: its own effort)` }, task }
   }
@@ -332,6 +334,13 @@ export function carry(task: Task | null, pick: Route, text: string, config: Conf
   })
   // A side question or a closing word gets its own (talk) effort but does not end the work under way.
   if (!pick.continues) return { route: pick, task: TALK.includes(pick.phase) ? task : fresh }
+  // Pushback on thinking work (the plan or the analysis fell short) redoes that thinking, whatever phase the message
+  // reads as (often fix): never the build effort of carrying a plan out, nor a fresh build. The work under way stays,
+  // so later follow-ups carry under it; the higher of its effort and the pick's goes.
+  if (pick.faulted && THINK.includes(task.phase)) {
+    if (RANK[pick.effort] > RANK[task.effort]) return { route: pick, task: { ...task, effort: pick.effort } }
+    return keep(`pushback on the ${task.phase}: keeps ${task.effort}`)
+  }
   // Building what was planned takes the build effort, as an approved plan does: the hard thinking went into the plan.
   if (task.phase === 'plan' && BUILD.includes(pick.phase)) {
     const effort = task.build ?? effortFor(pick.phase, false, false, config)
