@@ -88,10 +88,12 @@ describe('carry', () => {
     expect(r.route.effort).toBe('medium')
     expect(r.task.phase).toBe('implement')
   })
-  test('pushback on an analysis read as a fix keeps the analysis and its effort', () => {
-    const r = carry(task('analyze', 'high'), route('fix', 'medium', { continues: true, faulted: true }), 'that is not the cause, look again')
-    expect(r.route.effort).toBe('high')
-    expect(r.task.phase).toBe('analyze')
+  test('a faulted fix under an analysis goes at the build effort and starts the fix', () => {
+    const r = carry(task('analyze', 'high'), route('fix', 'medium', { continues: true, faulted: true }), 'fix this in the readme and write: the new wording')
+    expect(r.route.effort).toBe('medium')
+    expect(r.route.phase).toBe('fix')
+    expect(r.task.phase).toBe('fix')
+    expect(r.task.effort).toBe('medium')
   })
   test('pushback on a plan that names an effort goes at that effort', () => {
     const r = carry(task('plan', 'high'), route('fix', 'low', { continues: true, faulted: true, asked: 'low' }), 'wrong approach, redo it on low')
