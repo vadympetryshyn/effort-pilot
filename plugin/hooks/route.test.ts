@@ -64,6 +64,26 @@ describe('carry', () => {
     expect(r.route.effort).toBe('high')
     expect(r.route.kept).toBe(true)
   })
+  test('pushback on a build read as chat keeps the build\'s effort', () => {
+    const r = carry(task('implement', 'medium'), route('chat', 'low', { continues: true, faulted: true }), 'I did not ask you to change the header')
+    expect(r.route.effort).toBe('medium')
+    expect(r.route.phase).toBe('implement')
+    expect(r.route.kept).toBe(true)
+    expect(r.task.phase).toBe('implement')
+    expect(r.task.effort).toBe('medium')
+  })
+  test('pushback on a fix read as chat keeps the fix\'s effort', () => {
+    const r = carry(task('fix', 'high'), route('chat', 'low', { continues: true, faulted: true }), 'what did you do? two of the tests now fail')
+    expect(r.route.effort).toBe('high')
+    expect(r.route.kept).toBe(true)
+    expect(r.task.phase).toBe('fix')
+  })
+  test('a question about a build that does not say it fell short still takes its own effort', () => {
+    const r = carry(task('implement', 'medium'), route('chat', 'low', { continues: true, faulted: false }), 'why did you put it in a new file?')
+    expect(r.route.effort).toBe('low')
+    expect(r.route.kept).toBe(undefined)
+    expect(r.task.phase).toBe('implement')
+  })
   test('restating the last answer (translate, shorten) takes its own light effort', () => {
     const pick = parse('{"phase":"chat","hard":false,"continues":true,"restate":true,"why":"translate"}')!
     expect(pick.continues).toBe(false)

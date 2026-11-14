@@ -45,7 +45,7 @@ claude plugin install effort-pilot --marketplace vadympetryshyn/effort-pilot
 It is on as soon as it loads: from your next message, the line above the prompt shows `⏵ effort` with the effort it
 picked and why. Nothing to configure — every setting has a default (the terminal install still says its options are
 "not yet set": Claude Code counts any option you have not saved yourself, and the defaults apply). Works on Opus and Fable (Sonnet and Haiku are left to you). Needs a recent
-Claude Code (tested on 2.1.318).
+Claude Code (tested on 2.1.325).
 
 **Where it stands aside.** On the newer models (Opus 5 and 5.5, Fable 5.1) with an Anthropic login, effort is set per
 message, and a switch costs no prompt cache. Elsewhere effort is one setting of the whole request, and every switch

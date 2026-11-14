@@ -2,6 +2,10 @@
 
 All notable changes. Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions: [SemVer](https://semver.org/).
 
+## [1.12.6] — 2026-11-14
+
+- Pushing back on a build now keeps the build's effort. When the agent is implementing or fixing something and your next message says it fell short ("I did not ask you to change that", "what did you do? two tests fail now"), that turn undoes or redoes the work at the build's effort. Before, such a message could read as a question about the build and go at the light effort (`low`). A plain question about the build still goes at `low`.
+
 ## [1.12.5] — 2026-11-12
 
 - Pushing back on a plan now keeps the plan's effort. When the work under way is a plan you asked for in chat and your next message says it missed the point ("no, you misunderstood: I want it inside the existing job"), that turn reworks the plan at the plan effort (`high` by default). Before, such a message could read as carrying the plan out and go at the build effort (`medium`). A go-ahead ("looks good, build it") still goes at the build effort, and nothing changes while an analysis is under way.

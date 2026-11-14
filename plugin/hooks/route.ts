@@ -296,8 +296,9 @@ export function unasked(task: Task, config: Config = DEFAULTS): Task {
  * - a follow-up to unfinished work keeps that work's effort, unless it moves the work on from thinking (plan, analyze) to
  *   building, which the rule sets anew (after a plan: the build effort);
  * - a question about the work (chat) takes its own effort and leaves the work under way in place: about a build, answering
- *   it builds nothing; about a plan or an analysis, its answer is in the work so far, while one that needs new reasoning
- *   comes as analyze and one that says the work fell short as faulted, and both keep the work's effort;
+ *   it builds nothing (pushback on a build, faulted, keeps the build's effort: the agent redoes it); about a plan or
+ *   an analysis, its answer is in the work so far, while one that needs new reasoning comes as analyze and one that
+ *   says the work fell short as faulted, and both keep the work's effort;
  * - pushback on a plan (faulted, even when it reads as a fix or a build) redoes the plan: it stays the work under way,
  *   at the higher of its effort and the pick's, never the build effort of carrying it out; a faulted fix or build under
  *   an analysis starts that build at its own effort;
@@ -318,9 +319,10 @@ export function carry(task: Task | null, pick: Route, text: string, config: Conf
   if (pick.continues && task.asked && !(THINK.includes(task.phase) && BUILD.includes(pick.phase))) {
     return { route: { ...pick, effort: task.asked, kept: true, asked: task.asked, why: `you asked for ${task.asked}` }, task }
   }
-  // A question about building (implement, fix) takes its own light effort: answering it builds nothing. A word to go on
-  // ("done", "continue") comes as trivial and keeps the build's effort below: the agent builds on.
-  if (pick.continues && pick.phase === 'chat' && BUILD.includes(task.phase)) {
+  // A question about building (implement, fix) takes its own light effort: answering it builds nothing. Pushback on the
+  // build (faulted: "that is not what I asked") is no question: the agent undoes, redoes or fixes it, so it keeps the
+  // build's effort below, as a word to go on ("done", "continue": trivial) does.
+  if (pick.continues && pick.phase === 'chat' && !pick.faulted && BUILD.includes(task.phase)) {
     return { route: { ...pick, why: `${pick.why} (a question about the build: its own effort)` }, task }
   }
   // A question about thinking work (plan, analyze) takes its own effort too: its answer is already in that work. A
