@@ -2,6 +2,10 @@
 
 All notable changes. Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions: [SemVer](https://semver.org/).
 
+## [1.13.0] — 2026-11-15
+
+- A new setting, `planModelForPlans` (off by default): with `planModeModel` set, a plan you ask for outside plan mode also goes on that model, at the plan effort. "Plan the CSV export for the reports page", or a planning slash command such as `/create-plan …`, now runs on the plan model (say Fable) without plan mode and without naming the model each time. The model follows the work under way, not each message: a side question, a question about the plan or pushback on it ("no, the export goes inside the existing job") stays on the plan model with no new switch, only at its own effort as before. Once building starts ("looks good, build it"), or you start other work, your requests go back on the session's own model, the build at the build effort. A line and a toast say each switch ("planning on fable at high", "back on the session's model at medium for the build"), the status line and the band name the model, and the turn is recorded on the model its requests went on. A model you name in words still wins over the setting, subagents keep their own model, and plan mode works as before. Each switch costs one request that re-reads the conversation without the prompt cache. Off: only plan mode switches the model, as before.
+
 ## [1.12.7] — 2026-11-15
 
 - A subagent your agent starts at a named effort now keeps it when the agent sends it a follow-up message. When an Agent call names its effort (say `medium`), the pilot leaves that subagent alone; but when the agent later woke the same subagent with a message ("QA returned FIX: the list can grow past its cap."), that message was read as a fresh brief and the pilot set its own effort over the one the call asked for. A woken subagent now goes on at the call's effort, with no classifier call. A subagent started without a named effort is still read from its brief and set by the pilot when woken, as before.

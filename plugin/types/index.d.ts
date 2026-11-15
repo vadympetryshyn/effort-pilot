@@ -14,8 +14,9 @@ export type Mode = 'auto' | 'shadow' | 'off'
  * (lower-case: `plugin:agent`, `plugin:*`, a bare name, or `*`); sessionAgent: the agent type a headless session runs as
  * (`claude -p --agent <type>`) where the engine does not say it; empty: the engine's word. planModel: the model the main
  * loop's requests go on while plan mode lasts (an alias or a full id, as typed); empty: the model is never changed.
+ * planForPlans: planModel also holds while the work under way is a plan read from a message outside plan mode.
  */
-export type Config = { plan: Effort; analyze: Effort; build: Effort; hardBuild: Effort; talk: Effort; models: readonly string[]; agents: readonly string[]; sessionAgent: string; planModel: string }
+export type Config = { plan: Effort; analyze: Effort; build: Effort; hardBuild: Effort; talk: Effort; models: readonly string[]; agents: readonly string[]; sessionAgent: string; planModel: string; planForPlans: boolean }
 
 export type Route = {
   phase: Phase
@@ -201,13 +202,15 @@ declare module 'claude-code' {
       arm: 'auto' | 'control'
       /** The session's permission mode is plan, as the engine last reported it (classic hook input). */
       planMode: boolean
+      /** The text of the last plan the work under way was: a follow-up reasoning about it is still that plan's work. */
+      planText: string
       task: Shaped<Task | null>
       /** What the next request goes at, for other plugins to show: null when the pilot is not setting it. Its shape (effective-1) is read by other plugins: keep it. */
       effective: Shaped<{ effort: Effort; source: 'auto' | 'pinned' } | null>
       /**
        * The model the next main-loop request goes on, for other plugins to show, where the pilot sends it on another
        * model than the session's: one the person asked for in words (asked), one asked for making a plan (plan), or the
-       * planModeModel setting in plan mode (setting); an alias or a full id. Null: the session's own model. Its shape
+       * planModeModel setting in plan mode, or for a plan with planModelForPlans on (setting); an alias or a full id. Null: the session's own model. Its shape
        * (effective-model-1) is read by other plugins: keep it.
        */
       effectiveModel: Shaped<{ model: string; source: 'asked' | 'plan' | 'setting' } | null>

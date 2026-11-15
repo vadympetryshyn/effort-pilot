@@ -1,6 +1,6 @@
 {
   "name": "effort-pilot",
-  "version": "1.12.7",
+  "version": "1.13.0",
   "description": "The right reasoning effort for every turn: plans high, building medium, questions low, picked by a Haiku classifier. Switch the model or the effort by saying it (\"switch me to Sonnet at medium\"). The model is never changed unless you ask for one or set a plan-mode model, and the prompt cache is kept: where effort is a whole-request setting (Claude 4.x, Fable 5, Bedrock, Vertex), it stands aside.",
   "author": { "name": "Vadym Petryshyn", "url": "https://github.com/vadympetryshyn" },
   "homepage": "https://github.com/vadympetryshyn/effort-pilot",
@@ -19,8 +19,14 @@
     "planModeModel": {
       "type": "string",
       "title": "Plan mode model",
-      "description": "A model for the main conversation while plan mode is on: an alias (fable, opus) or a full model id. In plan mode its requests go on it at the plan effort; once the plan is approved or plan mode is left, they go on the session's own model again. Subagents keep their model. Each switch costs one request that re-reads the conversation without the prompt cache. Only on a model Effort Pilot manages, while it is on. Empty: the model is never changed.",
+      "description": "A model for the main conversation while plan mode is on: an alias (fable, opus) or a full model id. In plan mode its requests go on it at the plan effort; once the plan is approved or plan mode is left, they go on the session's own model again. Subagents keep their model. Each switch costs one request that re-reads the conversation without the prompt cache. Only on a model Effort Pilot manages, while it is on. To use it for plans you ask for outside plan mode too, turn on planModelForPlans. Empty: the model is never changed.",
       "default": ""
+    },
+    "planModelForPlans": {
+      "type": "boolean",
+      "title": "Plan model for plans outside plan mode",
+      "description": "With planModeModel set: a plan you ask for outside plan mode (\"plan the export feature\", a planning slash command) also goes on that model, at the plan effort. Questions and pushback on the plan stay on it; once building starts, or you start other work, the requests go back on the session's own model (the build at the build effort). A model you name in words wins. Off: only plan mode switches the model.",
+      "default": false
     },
     "analyzeEffort": {
       "type": "string",

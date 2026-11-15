@@ -82,15 +82,63 @@ async function planLevel($: EngineInterface): Promise<Effort> {
 }
 /**
  * The model the main loop's requests go on while plan mode lasts (the planModeModel setting), or undefined where they go
- * on the session's own (name). Only in plan mode, the engine's fact, never a plan the classifier reads: a switch of
- * model rewrites the conversation's prompt cache, so it hangs on a signal that does not flicker. Only while the pilot
- * steers this session on a model it manages (on, not paused by /effort, the turn routed).
+ * on the session's own (name). In plan mode, the engine's fact; out of it only with planForPlans on, while the work
+ * under way (the carried task, not the turn's route) is a plan: a switch of model rewrites the conversation's prompt
+ * cache, so it hangs on a signal that does not flicker. Only while the pilot steers this session on a model it manages
+ * (on, not paused by /effort, the turn routed); never for a headless session run as an agent.
  */
 async function planModel($: EngineInterface, name: string): Promise<string | undefined> {
-  if (!config.planModel || !(await read($, planMode))) return undefined
-  if ((await read($, mode)) !== 'auto' || (await read($, pin)) !== null || (await read($, who)) === null) return undefined
+  if (!config.planModel) return undefined
+  const w = await read($, who)
+  if (!(await read($, planMode)) && !(config.planForPlans && w !== 'agent' && (await planWork($)))) return undefined
+  if ((await read($, mode)) !== 'auto' || (await read($, pin)) !== null || w === null) return undefined
   if (!managed(name) || sameModel(name, config.planModel)) return undefined
   return config.planModel
+}
+// The text of the last plan the work under way was (the carried task's): a follow-up that reasons about that plan
+// (analyze, carried with the plan's text) is still the plan's work.
+const planText = atom({ plugin: 'effort-pilot', key: 'planText' } as const, '')
+/**
+ * With planForPlans on, the work under way is a plan read from a message outside plan mode: the carried task, never the
+ * turn's own route, so a side question, chat about the plan or pushback on it (all of which carry the plan on) keep
+ * the model, and only building it or a new task of another kind leave it. A switch of model costs one request without
+ * the prompt cache: it must not flicker.
+ */
+async function planWork($: EngineInterface) {
+  const t = await read($, task)
+  if (t?.phase === 'plan') return true
+  return t?.phase === 'analyze' && t.text !== '' && t.text === (await read($, planText))
+}
+/** The model the planForPlans setting sends the main loop's requests to now (out of plan mode), else undefined. */
+async function forPlans($: EngineInterface) {
+  if (!config.planForPlans || (await read($, planMode))) return undefined
+  const a = await altOf($, await read($, model))
+  return a?.source === 'setting' ? a.model : undefined
+}
+/**
+ * The work under way changed (a message out of plan mode): where it moved the main loop on or off the plan model of the
+ * planForPlans setting (before: the one it was on), the line says so, like plan mode's switch, for the model and the
+ * person. Nothing where a model the person named takes over: its own line says where the requests go.
+ */
+async function planSwitch($: EngineInterface, before: string | undefined) {
+  const t = await read($, task)
+  if (t?.phase === 'plan' && t.text !== (await read($, planText))) await update($, planText, () => t.text)
+  const now = await forPlans($)
+  if (now === before || toldOn) return
+  const name = await read($, model)
+  const alt = await altModel($, name)
+  if (!now && alt) return
+  const effort = await aim($, name, true)
+  const level = effort ?? 'your own effort'
+  const build = t?.phase === 'implement' || t?.phase === 'fix'
+  const line = now
+    ? `Effort Pilot: planning on ${now} at ${level} (the plan-mode model, set for plans too); back on the session's model (${name}) when building starts.`
+    : `Effort Pilot: back on the session's model (${name}) at ${level}${build ? ' for the build' : ''}.`
+  told = told ? `${told} ${line}` : line
+  toldOn = now ?? name
+  $.ui.toast(now ? `Effort Pilot: planning on ${now} at ${level}` : `Effort Pilot: back on ${name} at ${level}${build ? ' for the build' : ''}`)
+  const r = await read($, route)
+  if (r) $.ui.status(await statusOf($, r))
 }
 /** A model the main loop's requests go on instead of the session's, and why: asked in words, asked for the plan, the setting. */
 type Alt = { model: string; source: 'asked' | 'plan' | 'setting' }
@@ -101,8 +149,10 @@ type Alt = { model: string; source: 'asked' | 'plan' | 'setting' }
  */
 async function altOf($: EngineInterface, name: string): Promise<Alt | undefined> {
   const w = (await read($, mode)) === 'auto' ? await read($, wanted) : null
-  const set = await planModel($, name)
-  const pick: Alt | undefined = w?.plan && (await read($, planMode)) ? { model: w.model, source: 'plan' }
+  const inPlan = await read($, planMode)
+  // Out of plan mode (planForPlans), any model the person named beats the setting.
+  const set = inPlan || !w ? await planModel($, name) : undefined
+  const pick: Alt | undefined = w?.plan && inPlan ? { model: w.model, source: 'plan' }
     : set ? { model: set, source: 'setting' }
     : w ? { model: w.model, source: w.plan ? 'plan' : 'asked' } : undefined
   return pick && !isModel(pick.model, name) ? pick : undefined
@@ -233,6 +283,7 @@ async function begin($: EngineInterface, text: string, kind: string, handBack = 
   if (!notice && (await briefed($, text))) return
   if (!notice) await seed($, text).catch(err => $.ui.log(`effort-pilot: could not read the session so far: ${String(err)}`))
   const work = await read($, task)
+  const plans = await forPlans($)
   const pick = pre ? pre.pick : await classify($, text, true, notice).catch(() => null)
   const share0 = share()
   const carried = pick && !notice ? carry(work, pick, text, config) : null
@@ -245,8 +296,9 @@ async function begin($: EngineInterface, text: string, kind: string, handBack = 
   // An effort the person asked for is theirs: never a control turn.
   await update($, arm, () => (next && !next.asked && differs(next.effort) && Math.random() < share0 ? 'control' : 'auto'))
   if (carried) await update($, task, () => carried.task)
-  // A model this message switches to toasts once, with its effort (wantModel): no effort toast beside it.
-  if (next) await settle($, next, !!(carried && pick && carried.route.model))
+  // A model this message switches to toasts once, with its effort (wantModel, planSwitch): no effort toast beside it.
+  const moves = !!carried && (await forPlans($)) !== plans
+  if (next) await settle($, next, !!(carried && pick && carried.route.model) || moves)
   else {
     // No pick: the effort the turn before picked would go on by default, though this message may need far more.
     await update($, blind, () => true)
@@ -259,6 +311,7 @@ async function begin($: EngineInterface, text: string, kind: string, handBack = 
     const build = work?.phase === 'plan' && (r.phase === 'implement' || r.phase === 'fix') && !pick.model
     await wantModel($, r, { plan: r.phase === 'plan', build })
     await buildNote($)
+    await planSwitch($, plans)
   }
 }
 
@@ -646,12 +699,21 @@ async function delivered($: EngineInterface, kind: string, text: string, pre: Ea
   if ((await read($, arm)) !== 'auto' && !pick?.asked) return
   const took = pick ? midTurn(await read($, task), await read($, route), pick, text, config) : null
   if (!took) return
+  const plans = await forPlans($)
   if (took.route?.asked) await update($, arm, () => 'auto' as const)
   await update($, task, () => took.task)
+  const moves = (await forPlans($)) !== plans
   if (took.route) {
     await update($, blind, () => false)
-    await settle($, took.route, !!pick?.model)
+    await settle($, took.route, !!pick?.model || moves)
     await publish($)
+  }
+  // A new task moves the next request on or off the plan model (planForPlans): its line goes with the next tool result.
+  if (moves) {
+    await publish($)
+    await planSwitch($, plans)
+    midTold()
+    await tell($)
   }
 }
 
@@ -798,10 +860,18 @@ async function planBand($: EngineInterface, name: string) {
   return `${effort ? SHORT[effort] : 'your own effort'} on ${shortModel(alt)}`
 }
 
-/** Out of plan mode on the band: the model the person asked for, where requests go on one; else nothing. */
+/**
+ * Out of plan mode on the band: the model the person asked for, or the plan-mode model a plan goes on (planForPlans),
+ * where requests go on one; else nothing.
+ */
 async function modelBand($: EngineInterface, name: string) {
-  const alt = await altModel($, name)
+  const other = await altOf($, name)
+  const alt = other?.model
   if (!alt) return ''
+  if (other.source === 'setting') {
+    const effort = await aim($, name, true)
+    return `plan on ${shortModel(alt)}${effort ? '' : ' at your own effort'} until building starts · `
+  }
   const held = managed(alt) ? null : await aim($, name, true)
   return `on ${shortModel(alt)}${managed(alt) ? '' : held ? ` at ${SHORT[held]}` : ' at your own effort'}, as you asked · `
 }
@@ -1063,7 +1133,7 @@ export const register: Register = (on, options) => {
     const off = why ? ` · ${asideText(name, why)}` : ''
     const measured = measuring ? ` · measuring, ${Math.round(controlShare * 100)}% control turns` : ''
     const w = await read($, wanted)
-    const planNote = `${w ? ` · on ${w.model}${w.effort ? ` at ${w.effort}` : ''}, as you asked` : ''}${config.planModel ? ` · plan mode on ${config.planModel}` : ''}`
+    const planNote = `${w ? ` · on ${w.model}${w.effort ? ` at ${w.effort}` : ''}, as you asked` : ''}${config.planModel ? ` · ${config.planForPlans ? 'plans and plan mode' : 'plan mode'} on ${config.planModel}` : ''}`
     return { text: `Effort Pilot: ${await read($, mode)}${p ? `, pinned ${p}` : ''}${off}${planNote}${measured}` }
   })
 

@@ -4,7 +4,7 @@ export const EFFORTS: readonly Effort[] = ['low', 'medium', 'high', 'xhigh', 'ma
 export const PHASES: readonly Phase[] = ['plan', 'analyze', 'implement', 'fix', 'trivial', 'chat']
 
 /** The settings' defaults: the effort table and the models it applies to. */
-export const DEFAULTS: Config = { plan: 'high', analyze: 'high', build: 'medium', hardBuild: 'high', talk: 'low', models: ['opus', 'fable'], agents: [], sessionAgent: '', planModel: '' }
+export const DEFAULTS: Config = { plan: 'high', analyze: 'high', build: 'medium', hardBuild: 'high', talk: 'low', models: ['opus', 'fable'], agents: [], sessionAgent: '', planModel: '', planForPlans: false }
 
 /**
  * The settings as the plugin's options hold them (userConfig): a missing or unknown value falls back to its default,
@@ -28,6 +28,7 @@ export function configFrom(options: Readonly<Record<string, unknown>>): Config {
     agents,
     sessionAgent,
     planModel,
+    planForPlans: options.planModelForPlans === true,
   }
 }
 

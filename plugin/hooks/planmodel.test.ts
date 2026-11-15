@@ -16,16 +16,25 @@ const SESSION = 'claude-opus-5-5'
 const FABLE = 'claude-fable-5-2'
 
 /** A session on a managed model: the model and effort each request went on, the lines added, the status lines, the records. */
-function engine(on: On, reply: string, answers: Usage[] = []) {
-  const seen = { models: [] as string[], sent: [] as unknown[], agents: [] as string[], added: [] as string[], status: [] as string[], toasts: [] as string[], files: new Map<string, string>() }
+function engine(on: On, reply: string | string[], answers: Usage[] = [], $?: Engine) {
+  const seen = { models: [] as string[], sent: [] as unknown[], agents: [] as string[], added: [] as string[], status: [] as string[], toasts: [] as string[], context: [] as string[], files: new Map<string, string>() }
+  // One classifier answer a call, in order; the last one holds for every call after it.
+  const replies = typeof reply === 'string' ? [reply] : [...reply]
+  const answer = () => (replies.length > 1 ? replies.shift()! : replies[0]!)
   const records = () => [...seen.files.values()].flatMap(t => t.split('\n').filter(Boolean)).map(l => JSON.parse(l) as Record<string, unknown>)
   on('command.register', () => ({ value: { command: 'effort-pilot' } }))
   on('session.model', () => ({ value: SESSION }))
   on('session.id', () => ({ value: 's1' }))
   on('session.messages', () => ({ value: [] }))
   on('clock.now', () => ({ value: 0 }))
-  on('model.complete', () => ({ value: { isAnswered: true, text: reply, usage: usage() } }))
-  on('prompt.submit', (_$, e) => ({ text: e.text }))
+  on('model.complete', () => ({ value: { isAnswered: true, text: answer(), usage: usage() } }))
+  on('prompt.submit', async (_$, e) => {
+    seen.context.push(...(e.context ?? []))
+    // A skill command is expanded beneath its prompt.submit: what the model reads of it is the skill's prompt.
+    if (e.command && $) seen.context.push((await $.skill.prompt({ skill: e.command.name, text: 'The skill\'s own instructions.', frontmatter: {} })).text)
+    return { text: e.text }
+  })
+  on('skill.prompt', (_$, e) => ({ text: e.text }))
   on('ui.status', (_$, e) => {
     seen.status.push(e.text ?? '')
     return { value: undefined }
@@ -224,4 +233,160 @@ test('leaving plan mode by Shift+Tab stops naming the plan-mode model, and the n
   expect(seen.status.slice(from)).toEqual(['effort: high plan', 'effort: med implement'])
   expect(seen.models).toEqual([FABLE, SESSION])
   expect(seen.sent).toEqual(['high', 'medium'])
+})
+
+// planModelForPlans: the plan-mode model also for a plan read from a message outside plan mode, following the work under
+// way (the carried task), so a side question or pushback on the plan does not switch the model again.
+describe('the plan-mode model for plans outside plan mode', () => {
+  const ON = { planModeModel: FABLE, planModelForPlans: true }
+  const reply = (phase: string, more: string, why: string) => `{"phase":"${phase}","hard":false,"asked":"none","build":"none","faulted":false,${more}"why":"${why}"}`
+  const SIDE = reply('chat', '"continues":false,', 'a side question')
+  const ABOUT = reply('chat', '"continues":true,', 'a question about the plan')
+  const PUSHBACK = reply('fix', '"continues":true,"faulted":true,', 'the plan missed the point')
+  const DEEPER = reply('analyze', '"continues":true,', 'weigh the two options of the plan')
+  const GO = reply('implement', '"continues":true,', 'carry out the plan')
+  const OTHER = reply('implement', '"continues":false,', 'an unrelated change')
+  const NAMED = reply('plan', '"continues":false,"model":"sonnet",', 'design the feature')
+  const PLANNING = `Effort Pilot: planning on ${FABLE} at high (the plan-mode model, set for plans too); back on the session's model (${SESSION}) when building starts.`
+  const BACK = `Effort Pilot: back on the session's model (${SESSION}) at medium for the build.`
+  const say = ($: Engine, text: string) => turn($, text, 'default')
+
+  test('is off by default', () => {
+    expect(configFrom({}).planForPlans).toBe(false)
+    expect(configFrom({ planModelForPlans: true }).planForPlans).toBe(true)
+    expect(configFrom({ planModelForPlans: 'yes' }).planForPlans).toBe(false)
+  })
+
+  test('a plan asked for in a message goes on the plan-mode model at the plan effort, and says so', { options: ON }, async ($, on) => {
+    const seen = engine(on, PLAN)
+    await say($, 'Plan a CSV export for the reports page.')
+    expect(seen.models).toEqual([FABLE])
+    expect(seen.sent).toEqual(['high'])
+    expect(seen.status.at(-1)).toBe('effort: high plan · fable-5-2')
+    expect(seen.context.join('\n')).toContain(PLANNING)
+    expect(seen.added).toEqual([PLANNING])
+    expect(seen.toasts).toEqual([`Effort Pilot: planning on ${FABLE} at high`])
+    expect(await run($, '')).toContain(`plans and plan mode on ${FABLE}`)
+    const ui = await $.ui.mount({ plugin: 'effort-pilot', surface: 'terminal', component: 'AbovePrompt', props: { hasSurvey: false, isWorking: false, maxRows: 10 } as never })
+    expect((await ui.find({ type: 'Text', text: /plan on fable-5-2 until building starts/ }))?.text).toBeDefined()
+    await ui.unmount()
+  })
+
+  test('a planning slash command read as a plan goes on the plan-mode model too', { options: ON }, async ($, on) => {
+    const seen = engine(on, PLAN, [], $)
+    await $.prompt.submit({ text: '/tools:create-plan a CSV export of the reports page', command: { name: 'tools:create-plan', args: 'a CSV export of the reports page' }, origin: { kind: 'composer' } } as never)
+    await $.classic.UserPromptSubmit({ prompt: '/tools:create-plan', permission_mode: 'default' } as never)
+    await $.turn.start({ text: '/tools:create-plan', turnId: 'c1' })
+    await step($, 'c1', 0)
+    expect(seen.models).toEqual([FABLE])
+    expect(seen.sent).toEqual(['high'])
+    expect(seen.context.join('\n')).toContain(PLANNING)
+  })
+
+  test('a side question, a question about the plan, pushback and deeper reasoning on it stay on the plan model with no new switch', { options: ON }, async ($, on) => {
+    const seen = engine(on, [PLAN, SIDE, ABOUT, PUSHBACK, DEEPER])
+    for (const text of ['Plan a CSV export for the reports page.', 'What time zone are the logs in?', 'Why one file per report?', 'No, you misunderstood: the export goes inside the existing job.', 'Think through which of the two options holds up better.']) {
+      await complete($, await say($, text))
+    }
+    expect(seen.models).toEqual([FABLE, FABLE, FABLE, FABLE, FABLE])
+    expect(seen.sent).toEqual(['high', 'low', 'low', 'high', 'high'])
+    expect(seen.toasts.filter(t => t.includes('planning on') || t.includes('back on'))).toEqual([`Effort Pilot: planning on ${FABLE} at high`])
+    expect(seen.added).toEqual([PLANNING])
+  })
+
+  test('building the plan goes back on the session\'s model at the build effort, and the line says so', { options: ON }, async ($, on) => {
+    const seen = engine(on, [PLAN, SIDE, GO])
+    await complete($, await say($, 'Plan a CSV export for the reports page.'))
+    await complete($, await say($, 'What time zone are the logs in?'))
+    await say($, 'Looks good, build it.')
+    expect(seen.models).toEqual([FABLE, FABLE, SESSION])
+    expect(seen.sent).toEqual(['high', 'low', 'medium'])
+    expect(seen.context.join('\n')).toContain(BACK)
+    expect(seen.added).toEqual([PLANNING, BACK])
+    expect(seen.toasts.at(-1)).toBe(`Effort Pilot: back on ${SESSION} at medium for the build`)
+    expect(seen.toasts.filter(t => t.startsWith('effort:'))).toEqual(['effort: high → low chat'])
+    expect(seen.status.at(-1)).toBe('effort: med implement')
+  })
+
+  test('after deeper reasoning on the plan, building it goes back on the session\'s model', { options: ON }, async ($, on) => {
+    const seen = engine(on, [PLAN, DEEPER, GO])
+    for (const text of ['Plan a CSV export for the reports page.', 'Think through which of the two options holds up better.', 'Go with the first, build it.']) {
+      await complete($, await say($, text))
+    }
+    expect(seen.models).toEqual([FABLE, FABLE, SESSION])
+  })
+
+  test('a new task of another kind leaves the plan model', { options: ON }, async ($, on) => {
+    const seen = engine(on, [PLAN, OTHER])
+    await complete($, await say($, 'Plan a CSV export for the reports page.'))
+    await say($, 'Rename the save button to Store.')
+    expect(seen.models).toEqual([FABLE, SESSION])
+  })
+
+  test('a new task typed while the plan is under way moves the next request back to the session\'s model', { options: ON }, async ($, on) => {
+    const seen = engine(on, [PLAN, OTHER])
+    const id = await say($, 'Plan a CSV export for the reports page.')
+    await $.prompt.submit({ text: 'Rename the save button to Store.', origin: { kind: 'composer' }, turnId: id } as never)
+    await step($, id, 1)
+    expect(seen.models).toEqual([FABLE, SESSION])
+    // A message typed mid-turn never lowers the running turn's effort.
+    expect(seen.added).toEqual([PLANNING, BACK.replace('at medium', 'at high')])
+  })
+
+  test('a model the person names wins over the setting', { options: ON }, async ($, on) => {
+    const seen = engine(on, NAMED)
+    await say($, 'Plan a CSV export for the reports page on Sonnet.')
+    expect(seen.models).toEqual(['sonnet'])
+    expect(seen.toasts.filter(t => t.includes(FABLE))).toEqual([])
+  })
+
+  test('a model asked for earlier holds through a plan', { options: ON }, async ($, on) => {
+    // A model named is read twice.
+    const ask = reply('chat', '"continues":false,"model":"sonnet",', 'switch the model')
+    const seen = engine(on, [ask, ask, PLAN])
+    await complete($, await say($, 'Switch me to Sonnet.'))
+    await say($, 'Plan a CSV export for the reports page.')
+    expect(seen.models).toEqual(['sonnet', 'sonnet'])
+  })
+
+  test('with the setting off, only plan mode switches the model', { options: { planModeModel: FABLE, planModelForPlans: false } }, async ($, on) => {
+    const seen = engine(on, PLAN)
+    await complete($, await say($, 'Plan a CSV export for the reports page.'))
+    await planning($)
+    expect(seen.models).toEqual([SESSION, FABLE])
+    expect(seen.added).toEqual([])
+  })
+
+  test('with no plan-mode model set, a plan keeps the session\'s model', { options: { planModelForPlans: true } }, async ($, on) => {
+    const seen = engine(on, PLAN)
+    await say($, 'Plan a CSV export for the reports page.')
+    expect(seen.models).toEqual([SESSION])
+  })
+
+  test('with the effort set by hand, a plan keeps the session\'s model', { options: ON }, async ($, on) => {
+    const seen = engine(on, PLAN)
+    await $.command.run({ command: 'effort', args: 'max', origin: { kind: 'composer' }, presentation: { isFullscreen: false, columns: 80 } })
+    await say($, 'Plan a CSV export for the reports page.')
+    expect(seen.models).toEqual([SESSION])
+  })
+
+  test('a subagent spawned during plan work keeps its model', { options: ON }, async ($, on) => {
+    const seen = engine(on, PLAN)
+    const id = await say($, 'Plan a CSV export for the reports page.')
+    for await (const _ of $.turn.step({ turnId: id, index: 0, model: 'claude-haiku-5', effort: 'high', messageCount: 1, agentId: 'a1' })) { /* drain */ }
+    for await (const _ of $.turn.step({ turnId: id, index: 0, model: SESSION, effort: 'high', messageCount: 1, agentId: 'a2' })) { /* drain */ }
+    expect(seen.agents).toEqual(['claude-haiku-5', SESSION])
+    expect(seen.models).toEqual([FABLE])
+  })
+
+  test('a plan turn is recorded on the plan model; the build turn on the session\'s', { options: { ...ON, measure: true, controlShare: 0 } }, async ($, on) => {
+    const seen = engine(on, [PLAN, GO])
+    await complete($, await say($, 'Plan a CSV export for the reports page.'))
+    await complete($, await say($, 'Looks good, build it.'))
+    const [planned, built] = seen.records()
+    expect(planned).toEqual(expect.objectContaining({ phase: 'plan', model: FABLE }))
+    expect(planned).not.toHaveProperty('planMode')
+    expect(planned).not.toHaveProperty('asked')
+    expect(built).toEqual(expect.objectContaining({ phase: 'implement', model: SESSION }))
+  })
 })
