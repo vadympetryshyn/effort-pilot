@@ -2,6 +2,10 @@
 
 All notable changes. Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions: [SemVer](https://semver.org/).
 
+## [1.12.7] — 2026-11-15
+
+- A subagent your agent starts at a named effort now keeps it when the agent sends it a follow-up message. When an Agent call names its effort (say `medium`), the pilot leaves that subagent alone; but when the agent later woke the same subagent with a message ("QA returned FIX: the list can grow past its cap."), that message was read as a fresh brief and the pilot set its own effort over the one the call asked for. A woken subagent now goes on at the call's effort, with no classifier call. A subagent started without a named effort is still read from its brief and set by the pilot when woken, as before.
+
 ## [1.12.6] — 2026-11-14
 
 - Pushing back on a build now keeps the build's effort. When the agent is implementing or fixing something and your next message says it fell short ("I did not ask you to change that", "what did you do? two tests fail now"), that turn undoes or redoes the work at the build's effort. Before, such a message could read as a question about the build and go at the light effort (`low`). A plain question about the build still goes at `low`.

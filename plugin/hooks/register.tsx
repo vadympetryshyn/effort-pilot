@@ -1243,7 +1243,10 @@ export const register: Register = (on, options) => {
     const call = named.get(e.tool_use_id)
     named.delete(e.tool_use_id)
     const env = (await $.env.get('CLAUDE_CODE_SUBAGENT_EFFORT').catch(() => undefined))?.trim()
-    const held: Decision['held'] = call !== undefined ? 'call' : env ? 'env'
+    const held: Decision['held'] = call !== undefined ? 'call'
+      // A message that wakes an agent the call set (SendMessage, no Agent call) is no brief: the call's effort holds.
+      : e.resume && resumed?.held === 'call' ? 'call'
+      : env ? 'env'
       : m !== 'auto' ? 'shadow' : (await read($, pin)) !== null ? 'pin'
       // Where a switch would rewrite the prompt cache, the subagent keeps the session's effort: nothing to classify.
       : aside(e.model ?? e.parentModel) !== null ? 'aside'

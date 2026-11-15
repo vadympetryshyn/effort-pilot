@@ -160,6 +160,25 @@ describe('the agents setting', () => {
     expect(seen.sent).toEqual(['xhigh'])
   })
 
+  test('an agent the Agent call set keeps the call\'s effort when a message wakes it: the message is not read as a brief', { options: { agents: '*' } }, async ($, on) => {
+    const seen = await session($, on, [pick('implement', true)])
+    const nested = { parentAgentId: 'p0' }
+    await spawn($, 'lab:builder', { effort: 'medium', call: { effort: 'medium' }, spawn: nested })
+    expect(seen.logs).toEqual(['lab:builder «add the note» — effort med (as the call asked)'])
+    await spawn($, 'lab:builder', { effort: 'medium', text: 'QA returned FIX: the list can grow past its cap.', turn: 's2', steps: 2, spawn: { ...nested, resume: { agentId: 'a1' } } })
+    expect(seen.prompts.length).toBe(0)
+    expect(seen.sent).toEqual(['medium', 'medium', 'medium'])
+    expect(seen.logs.some(l => l.includes('set by the pilot'))).toBe(false)
+  })
+
+  test('an agent spawned with no call effort is still read from its brief and steered when woken', { options: { agents: '*' } }, async ($, on) => {
+    const seen = await session($, on, [pick('implement'), pick('fix', true, true)])
+    await spawn($, 'lab:builder')
+    await spawn($, 'lab:builder', { text: 'QA returned FIX: the list can grow past its cap.', turn: 's2', spawn: { resume: { agentId: 'a1' } } })
+    expect(seen.prompts.length).toBe(2)
+    expect(seen.sent).toEqual(['medium', 'high'])
+  })
+
   test('CLAUDE_CODE_SUBAGENT_EFFORT wins over the listing', { options: { agents: '*' } }, async ($, on) => {
     const seen = await session($, on, [pick('implement')], true, { CLAUDE_CODE_SUBAGENT_EFFORT: 'high' })
     await spawn($, 'lab:builder')
