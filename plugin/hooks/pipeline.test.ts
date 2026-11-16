@@ -23,9 +23,9 @@ const GO = reply({ phase: 'implement', continues: true })
 const ASIDE = reply({ phase: 'chat', continues: false })
 const BUILD_TESTED = reply({ phase: 'implement', testModel: 'haiku', test: 'low' })
 
-const FULL = 'From the Effort Pilot plugin: the person asked that testing and review of this work run on haiku at low. When you reach that stage, run it in a subagent (Agent tool) with model "haiku" and effort "low", giving it what it needs to check. Do not switch yourself.'
-const REMINDER = 'Reminder from the Effort Pilot plugin: testing and review of this work go to a subagent (Agent tool) with model "haiku" and effort "low", as the person asked; do not switch yourself.'
-const NOTICE = 'Effort Pilot: testing and review of this work will run in a subagent on haiku at low, as you asked.'
+const FULL = 'From the Effort Pilot plugin: it read a test stage on haiku at low in the person\'s message. When you reach testing and review of this work, run them in a subagent (Agent tool) with model "haiku" and effort "low", giving it what it needs to check. Do not switch yourself. If their words named that model or level for something the work builds or sets up (a job, a script, a setting, an API call), not for testing this work, ignore this line.'
+const REMINDER = 'Reminder from the Effort Pilot plugin: testing and review of this work go to a subagent (Agent tool) with model "haiku" and effort "low", as the person asked (unless they named it for something the work builds, not for testing it); do not switch yourself.'
+const NOTICE = 'Effort Pilot: read a test stage on haiku at low in your message: testing and review of this work go to a subagent.'
 
 /**
  * A session on Opus 5.5: the classifier answers by the first key the message read holds, else BUILD. Records each
@@ -186,7 +186,7 @@ describe('the test stage on the work under way', () => {
 test('a three-stage message: plan on fable at high, build on the session\'s opus at medium, then the test line once building starts', async ($, on) => {
   const seen = engine(on, { 'Plan on fable': THREE, 'go': GO, 'what port': ASIDE })
   await said($, 'Plan on fable at high, build on opus at medium, test on haiku at low: add slugify')
-  expect(seen.context.some(c => c.includes('Testing and review of the built work will run in a subagent on haiku at low, as you asked.'))).toBe(true)
+  expect(seen.context.some(c => c.includes('Read a test stage on haiku at low in your message: testing and review of the built work will go to a subagent.'))).toBe(true)
   expect(seen.context.some(c => c.includes('Do not switch yourself'))).toBe(false)
   seen.context.length = 0
   await said($, 'go')
@@ -234,10 +234,21 @@ test('a build with a test stage from the start gets the line on its first turn; 
   expect(seen.status.at(-1)).not.toContain('test:')
 })
 
+test('a model named for a job the work builds: the full line and the reminder let the agent ignore the stage', async ($, on) => {
+  const seen = engine(on, { 'Set up a nightly job': BUILD_TESTED, 'now finish it': GO })
+  await said($, 'Set up a nightly job that runs the test suite with haiku at low effort')
+  expect(seen.context).toEqual([FULL])
+  expect(FULL).toContain('for something the work builds or sets up (a job, a script, a setting, an API call), not for testing this work, ignore this line')
+  seen.context.length = 0
+  await said($, 'now finish it')
+  expect(seen.context).toEqual([REMINDER])
+  expect(REMINDER).toContain('unless they named it for something the work builds, not for testing it')
+})
+
 test('only a model named for the test stage: the line names no effort', async ($, on) => {
   const seen = engine(on, { 'Add slugify': reply({ phase: 'implement', testModel: 'sonnet' }) })
   await said($, 'Add slugify, then have sonnet review it')
-  expect(seen.context).toEqual(['From the Effort Pilot plugin: the person asked that testing and review of this work run on sonnet. When you reach that stage, run it in a subagent (Agent tool) with model "sonnet", giving it what it needs to check. Do not switch yourself.'])
+  expect(seen.context).toEqual(['From the Effort Pilot plugin: it read a test stage on sonnet in the person\'s message. When you reach testing and review of this work, run them in a subagent (Agent tool) with model "sonnet", giving it what it needs to check. Do not switch yourself. If their words named that model or level for something the work builds or sets up (a job, a script, a setting, an API call), not for testing this work, ignore this line.'])
   expect(seen.status.at(-1)).toContain('test: sonnet')
 })
 

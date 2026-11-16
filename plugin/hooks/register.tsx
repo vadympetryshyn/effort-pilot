@@ -433,7 +433,7 @@ async function buildNote($: EngineInterface) {
   if (toldBuild === key) return
   toldBuild = key
   const build = t.buildModel ? `the plan will be carried out on ${t.buildModel}${t.build ? ` at ${t.build}` : ''}, as you asked; the pilot switches to it when building starts.` : ''
-  const tests = test ? `${build ? 'Testing' : 'testing'} and review of the built work will run in a subagent ${test}, as you asked.` : ''
+  const tests = test ? `${build ? 'Read' : 'read'} a test stage ${test} in your message: testing and review of the built work will go to a subagent.` : ''
   const line = `Effort Pilot: ${[build, tests].filter(Boolean).join(' ')}`
   told = told ? `${told} ${line}` : line
 }
@@ -482,13 +482,13 @@ async function testLine($: EngineInterface, fresh = false): Promise<string | nul
     // the stage stays held for the build's next turn.
     const phase = (await read($, route))?.phase
     if (fresh || phase === 'chat' || phase === 'trivial') return null
-    return `Reminder from the Effort Pilot plugin: testing and review of this work go to a subagent (Agent tool) with ${call}, as the person asked; do not switch yourself.`
+    return `Reminder from the Effort Pilot plugin: testing and review of this work go to a subagent (Agent tool) with ${call}, as the person asked (unless they named it for something the work builds, not for testing it); do not switch yourself.`
   }
   testTold = key
   const words = testWords(t)!
-  await $.session.append({ message: { type: 'system', content: [{ type: 'text', text: `Effort Pilot: testing and review of this work will run in a subagent ${words}, as you asked.` }] } })
+  await $.session.append({ message: { type: 'system', content: [{ type: 'text', text: `Effort Pilot: read a test stage ${words} in your message: testing and review of this work go to a subagent.` }] } })
     .catch(err => $.ui.log(`effort-pilot: could not show the test stage: ${String(err)}`))
-  return `From the Effort Pilot plugin: the person asked that testing and review of this work run ${words}. When you reach that stage, run it in a subagent (Agent tool) with ${call}, giving it what it needs to check. Do not switch yourself.`
+  return `From the Effort Pilot plugin: it read a test stage ${words} in the person's message. When you reach testing and review of this work, run them in a subagent (Agent tool) with ${call}, giving it what it needs to check. Do not switch yourself. If their words named that model or level for something the work builds or sets up (a job, a script, a setting, an API call), not for testing this work, ignore this line.`
 }
 /**
  * The context line a prompt goes with when the message switched the model (on: where this turn's requests now go), or
