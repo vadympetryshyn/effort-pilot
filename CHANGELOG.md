@@ -2,6 +2,12 @@
 
 All notable changes. Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions: [SemVer](https://semver.org/).
 
+## [1.14.0] — 2026-11-16
+
+- A third stage you can name in words: testing. "Plan on Fable at high, build on Opus at medium, test on Haiku at low: add pagination to the users endpoint" now sets the whole pipeline in one message, typed or dictated, in any language. Planning and building switch the main loop's model as before. The test stage does not: once building has started (the plan approved, "go", or a build from the start), the agent is told to run testing, checking and review in a subagent on the model you named, at the effort you named, and a notice says so. A subagent starts with a small, fresh context, so the test stage costs no extra request without the prompt cache, where switching the main loop's model costs one. When the agent starts a subagent on that model and its call names no effort, the effort you named for testing goes on that subagent's requests, on Sonnet and Haiku too; its description shows it (`· effort low`). The band and the status line show the stage held (`test: haiku·low`). "And test it on Haiku" said later, at the prompt or while the agent works, adds the stage to the work under way; a new task drops it. A sentence you ask the agent to write (into the README, a commit message) still sets nothing.
+- Plan, build and test may each name Opus, Sonnet, Haiku or Fable. On a model Effort Pilot does not manage (Sonnet and Haiku by default) it sets no effort of its own: the effort you named for that stage holds, and with none named your own effort goes.
+- The classifier reads two more fields for this (`testModel`, `test`), only on your own messages, and only reads a message again when it names a stage, model or level, as before.
+
 ## [1.13.1] — 2026-11-16
 
 - In a run with no one at the prompt (`claude -p`, the Agent SDK, with the `headless` setting on), a message the classifier gives no answer for (a timeout, an outage, a reply it cannot read) is now read once more before the turn runs at the run's own effort. Before, a timeout on the run's first message left the work under way unknown for the whole run: every later notification (a background task finished, a scheduled prompt fired) was routed on its own, so a test run finishing in the middle of a build could go at `low`. The second read uses the same prompt, model and time limit, and happens only after a miss. Interactive sessions are unchanged: one read, so you never wait twice on an outage.

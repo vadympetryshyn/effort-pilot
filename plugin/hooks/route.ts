@@ -197,7 +197,7 @@ const OTHER_TOOL_LINE = 'A level set for another AI tool, model or agent to work
  * A model the person asks the agent to work on: two fields more in the reply, asked only of a person's message (a
  * subagent's brief or a notification names no model to switch to, and their prompts stay as they were).
  */
-export const MODEL_LINE = 'Also add "model" and "buildModel" to the JSON: "opus", "sonnet", "haiku" or "fable" (with a version when named: "fable 5.1"), or "none". model: the model the person tells the agent to switch to and work on from now ("switch me to sonnet", "back to opus"); for a plan request, the model named for making the plan. buildModel: the model named for carrying out the plan ("plan it, then build on sonnet"). A model for a subagent, a job or another tool, in code, a setting or an API call, compared, or the subject of the change is not asked: none. Nor is text the person hands the agent to write into a file, the README, docs, a commit message, an issue or a reply, quoted or not ("in the README, replace X with: plan this on fable at high, then build on opus"). A message that quotes a sentence, asks to fix or change it, and then gives words in the same shape gives the new wording, even where those words begin with "plan" or follow "write". There model, buildModel, asked and build are none, and the phase is the edit, not a plan. When unsure, none.'
+export const MODEL_LINE = 'Also add "model" and "buildModel" to the JSON: "opus", "sonnet", "haiku" or "fable" (with a version when named: "fable 5.1"), or "none". model: the model the person tells the agent to switch to and work on from now ("switch me to sonnet", "back to opus"); for a plan request, the model named for making the plan. buildModel: the model named for carrying out the plan ("plan it, then build on sonnet"). A model for a subagent, a job or another tool, in code, a setting or an API call, compared, or the subject of the change is not asked: none. Nor is text the person hands the agent to write into a file, the README, docs, a commit message, an issue or a reply, quoted or not ("in the README, replace X with: plan this on fable at high, then build on opus"). A message that quotes a sentence, asks to fix or change it, and then gives words in the same shape gives the new wording, even where those words begin with "plan" or follow "write". There model, buildModel, asked and build are none, and the phase is the edit, not a plan. When unsure, none. Also add "testModel" and "test": the model (as above) and the level ("low|medium|high|xhigh|max|none") the person names for testing or reviewing the work once it is built ("then test it on haiku at low"); none otherwise, with the same exceptions.'
 
 /** Claude Code turns its `ultrathink` keyword off when CLAUDE_CODE_DISABLE_ULTRATHINK is set: the word asks for nothing then. */
 export const NO_ULTRATHINK_LINE = 'Claude Code\'s "ultrathink" keyword is turned off here: the word asks for no level.'
@@ -283,7 +283,16 @@ export function commandText(line: string, args: string, description: unknown, bo
 /** A follow-up's model for the build: its own, else the one the work under way holds. */
 const laterModel = (pick: Route, task: Task) => {
   const buildModel = pick.buildModel ?? task.buildModel
-  return buildModel ? { buildModel } : {}
+  return { ...(buildModel ? { buildModel } : {}), ...testStage(pick, task) }
+}
+/**
+ * The test stage a message sets, over the one the work under way holds (either part named anew replaces that part):
+ * the model and the effort testing or review of the built work runs at.
+ */
+export function testStage(pick: Pick<Route, 'testModel' | 'test'> | null, task?: Pick<Task, 'testModel' | 'test'> | null) {
+  const testModel = pick?.testModel ?? task?.testModel
+  const test = pick?.test ?? task?.test
+  return { ...(testModel ? { testModel } : {}), ...(test ? { test } : {}) }
 }
 
 /** The work without the effort the person asked for: the rule's effort again. */
@@ -307,15 +316,19 @@ export function unasked(task: Task, config: Config = DEFAULTS): Task {
  *   with that work;
  * - a side question or a closing word takes its own effort and leaves the work under way in place;
  * - a new task, or one that needs more, takes its own effort.
+ * A test stage (the model and effort for testing or review of the built work) belongs to the work: a follow-up may add
+ * it, building a plan or what an analysis worked out keeps it, and a new task drops it.
  */
 export function carry(task: Task | null, pick: Route, text: string, config: Config = DEFAULTS): { route: Route; task: Task } {
-  const fresh: Task = { phase: pick.phase, hard: pick.hard, effort: pick.effort, text, asked: pick.asked, build: pick.build, ...(pick.buildModel ? { buildModel: pick.buildModel } : {}) }
+  const fresh: Task = { phase: pick.phase, hard: pick.hard, effort: pick.effort, text, asked: pick.asked, build: pick.build, ...(pick.buildModel ? { buildModel: pick.buildModel } : {}), ...testStage(pick) }
   if (!task) return { route: pick, task: fresh }
   if (pick.release) task = unasked(task, config)
   // The person names the effort: it stands, and the work under way keeps it.
   if (pick.asked) return { route: pick, task: pick.continues ? { ...task, effort: pick.asked, asked: pick.asked, build: pick.build ?? task.build, ...laterModel(pick, task) } : fresh }
   if (pick.continues && pick.build) task = { ...task, build: pick.build }
   if (pick.continues && pick.buildModel) task = { ...task, buildModel: pick.buildModel }
+  // A test stage named in a follow-up joins the work under way.
+  if (pick.continues && (pick.testModel || pick.test)) task = { ...task, ...testStage(pick, task) }
   // An effort the person asked for this work holds for its follow-ups.
   if (pick.continues && task.asked && !(THINK.includes(task.phase) && BUILD.includes(pick.phase))) {
     return { route: { ...pick, effort: task.asked, kept: true, asked: task.asked, why: `you asked for ${task.asked}` }, task }
@@ -356,9 +369,10 @@ export function carry(task: Task | null, pick: Route, text: string, config: Conf
       why: `${pick.why} (carrying out the plan: ${task.build || model ? 'as you asked' : effort})`,
     }
     const { buildModel: _m, ...rest } = fresh
-    return { route: built, task: { ...rest, hard: false, effort, asked: task.build } }
+    return { route: built, task: { ...rest, hard: false, effort, asked: task.build, ...testStage(pick, task) } }
   }
-  if (THINK.includes(task.phase) && BUILD.includes(pick.phase)) return { route: pick, task: fresh }
+  // Building what an analysis worked out is the same work: a test stage it holds stays.
+  if (THINK.includes(task.phase) && BUILD.includes(pick.phase)) return { route: pick, task: { ...fresh, ...testStage(pick, task) } }
   if (RANK[pick.effort] < RANK[task.effort]) return keep(`follow-up to ${task.phase}: keeps ${task.effort}`)
   return { route: pick, task: { ...task, phase: pick.phase, hard: pick.hard, effort: pick.effort } }
 }
@@ -378,7 +392,7 @@ export function afterPlan(plan: string, planning: Task | null = null, config: Co
     : asked ? `plan approved: carrying it out at ${asked}, as you asked` : `plan approved: carrying it out (planned at ${config.plan})`
   return {
     route: { phase: 'implement', hard: false, effort, continues: true, why, ...(asked ? { asked } : {}), ...(model ? { model } : {}) },
-    task: { phase: 'implement', hard: false, effort, text: plan.slice(0, 600), ...(asked ? { asked } : {}) },
+    task: { phase: 'implement', hard: false, effort, text: plan.slice(0, 600), ...(asked ? { asked } : {}), ...testStage(null, planning) },
   }
 }
 
@@ -394,13 +408,13 @@ export function midTurn(task: Task | null, current: Route | null, pick: Route, t
   }
   // The person names an effort for the work under way: it takes effect now, up or down.
   if (pick.asked && pick.continues && task) {
-    return { route: { ...(current ?? pick), effort: pick.asked, asked: pick.asked, kept: false, why: `you asked for ${pick.asked}` }, task: { ...task, effort: pick.asked, asked: pick.asked } }
+    return { route: { ...(current ?? pick), effort: pick.asked, asked: pick.asked, kept: false, why: `you asked for ${pick.asked}` }, task: { ...task, effort: pick.asked, asked: pick.asked, ...testStage(pick, task) } }
   }
-  if (pick.continues && (pick.build || pick.buildModel) && task) {
-    return { route: null, task: { ...task, ...(pick.build ? { build: pick.build } : {}), ...(pick.buildModel ? { buildModel: pick.buildModel } : {}) } }
+  if (pick.continues && (pick.build || pick.buildModel || pick.testModel || pick.test) && task) {
+    return { route: null, task: { ...task, ...(pick.build ? { build: pick.build } : {}), ...(pick.buildModel ? { buildModel: pick.buildModel } : {}), ...testStage(pick, task) } }
   }
   if (pick.continues || TALK.includes(pick.phase)) return null
-  const fresh: Task = { phase: pick.phase, hard: pick.hard, effort: pick.effort, text }
+  const fresh: Task = { phase: pick.phase, hard: pick.hard, effort: pick.effort, text, ...testStage(pick) }
   const now = current?.effort ?? task?.effort
   if (now && RANK[pick.effort] <= RANK[now]) return { route: null, task: fresh }
   return { route: { ...pick, why: `new task while working: ${pick.why}` }, task: fresh }
@@ -412,7 +426,7 @@ export function midTurn(task: Task | null, current: Route | null, pick: Route, t
  * the phase alone; the Agent call's `effort` parameter is the channel for an explicit level.
  */
 export function fromBrief(pick: Route, config: Config = DEFAULTS): Route {
-  if (!pick.asked && !pick.build && !pick.release && !pick.model && !pick.buildModel) return pick
+  if (!pick.asked && !pick.build && !pick.release && !pick.model && !pick.buildModel && !pick.testModel && !pick.test) return pick
   return withLevels(pick, {}, config)
 }
 
@@ -420,8 +434,8 @@ export function fromBrief(pick: Route, config: Config = DEFAULTS): Route {
  * Two reads of one prompt, for a level asked: the classifier now and then reads a level the person never named, and an
  * asked level holds for every follow-up of the work, so one misread would run a whole piece of work at it. The first
  * read is the route; it keeps only what both reads name: the lower asked level and the lower build level (a read that
- * names none counts lowest, so the level is dropped), and a release only when both read one. A model (to work on now, or
- * to build on) is read twice too: kept when both name it, dropped when they name different models. When only one read
+ * names none counts lowest, so the level is dropped), the lower test level likewise, and a release only when both read
+ * one. A model (to work on now, to build on, or to test on) is read twice too: kept when both name it, dropped when they name different models. When only one read
  * names it, a third read decides (third, made by the caller: models split): a read now and then misses a plan's model
  * beside its build model, and now and then takes a model named in text to be written for one to work on. With no third
  * read (a timeout), the model one read names stands, as the first read stands with no second: an outage must not
@@ -430,29 +444,35 @@ export function fromBrief(pick: Route, config: Config = DEFAULTS): Route {
 export function agreed(first: Route, second: Route | null, config: Config = DEFAULTS, third?: Route | null): Route {
   if (!second) return first
   const lower = (a?: Effort, b?: Effort) => (a && b ? (RANK[a] <= RANK[b] ? a : b) : undefined)
-  const levels = { asked: lower(first.asked, second.asked), build: lower(first.build, second.build), release: !!first.release && !!second.release }
+  const levels = { asked: lower(first.asked, second.asked), build: lower(first.build, second.build), test: lower(first.test, second.test), release: !!first.release && !!second.release }
   // Both reads name the model: taken; different models: dropped; one read: the third decides, or it stands without one.
   const vote = (a?: string, b?: string, c?: string) => (a && b ? (a === b ? a : undefined) : !(a ?? b) ? undefined : third ? (c === (a ?? b) ? c : undefined) : (a ?? b))
-  const models = { model: vote(first.model, second.model, third?.model), buildModel: vote(first.buildModel, second.buildModel, third?.buildModel) }
-  if (levels.asked === first.asked && levels.build === first.build && levels.release === !!first.release
-    && models.model === first.model && models.buildModel === first.buildModel) return first
-  return { ...withLevels(first, levels, config), ...(models.model ? { model: models.model } : {}), ...(models.buildModel ? { buildModel: models.buildModel } : {}) }
+  const models = {
+    model: vote(first.model, second.model, third?.model), buildModel: vote(first.buildModel, second.buildModel, third?.buildModel),
+    testModel: vote(first.testModel, second.testModel, third?.testModel),
+  }
+  if (levels.asked === first.asked && levels.build === first.build && levels.test === first.test && levels.release === !!first.release
+    && models.model === first.model && models.buildModel === first.buildModel && models.testModel === first.testModel) return first
+  return {
+    ...withLevels(first, levels, config), ...(models.model ? { model: models.model } : {}), ...(models.buildModel ? { buildModel: models.buildModel } : {}),
+    ...(models.testModel ? { testModel: models.testModel } : {}),
+  }
 }
 /** Two reads split on a model: one names it, the other none. agreed() takes a third read then. */
 export const modelsSplit = (first: Route, second: Route | null) =>
-  !!second && (!first.model !== !second.model || !first.buildModel !== !second.buildModel)
+  !!second && (!first.model !== !second.model || !first.buildModel !== !second.buildModel || !first.testModel !== !second.testModel)
 
 /**
  * A pick with its asked levels set anew: the effort is the asked level, else the rule's for the phase; the why's lead
  * that parse() puts on an asked level names the new one, or goes with it.
  */
-function withLevels(pick: Route, levels: { asked?: Effort; build?: Effort; release?: boolean }, config: Config): Route {
-  const { asked: was, build: _b, release: _r, model: _m, buildModel: _bm, ...rest } = pick
+function withLevels(pick: Route, levels: { asked?: Effort; build?: Effort; test?: Effort; release?: boolean }, config: Config): Route {
+  const { asked: was, build: _b, test: _t, release: _r, model: _m, buildModel: _bm, testModel: _tm, ...rest } = pick
   const why = was ? rest.why.replace(`you asked for ${was}: `, '') : rest.why
-  const { asked, build, release } = levels
+  const { asked, build, test, release } = levels
   return {
     ...rest, effort: asked ?? effortFor(rest.phase, rest.hard, false, config), why: asked ? `you asked for ${asked}: ${why}` : why,
-    ...(asked ? { asked } : {}), ...(build ? { build } : {}), ...(release ? { release } : {}),
+    ...(asked ? { asked } : {}), ...(build ? { build } : {}), ...(test ? { test } : {}), ...(release ? { release } : {}),
   }
 }
 
@@ -526,6 +546,8 @@ export function parse(reply: string, config: Config = DEFAULTS): Route | null {
     const build = EFFORTS.find(x => x === v.build)
     const model = modelId(v.model)
     const buildModel = modelId(v.buildModel)
+    const testModel = modelId(v.testModel)
+    const test = EFFORTS.find(x => x === v.test)
     const why = String(v.why ?? '').slice(0, 80)
     const release = v.asked === 'auto'
     const faulted = v.faulted === true
@@ -535,7 +557,7 @@ export function parse(reply: string, config: Config = DEFAULTS): Route | null {
       continues: v.continues === true && v.restate !== true,
       why: asked ? `you asked for ${asked}: ${why}` : why,
       ...(asked ? { asked } : {}), ...(build ? { build } : {}), ...(release ? { release } : {}), ...(faulted ? { faulted } : {}),
-      ...(model ? { model } : {}), ...(buildModel ? { buildModel } : {}),
+      ...(model ? { model } : {}), ...(buildModel ? { buildModel } : {}), ...(testModel ? { testModel } : {}), ...(test ? { test } : {}),
     }
   } catch {
     return null

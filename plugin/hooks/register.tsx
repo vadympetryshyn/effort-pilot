@@ -4,7 +4,7 @@ import type { EngineInterface, Register, TurnStepResult } from 'claude-code'
 import type { AgentRun, Config, Effort, Mode, Route, Spend, Tally, Task, TurnRecord, Who } from '../types'
 import {
   afterPlan, agreed, asideText, isModel, briefPrompt, cacheRewritten, commandText, unasked, carry, configFrom, DEFAULTS, EFFORTS, flagOn, forAgent, forNotice, fromBrief, listedAgent, managed as managedBy, versionOf,
-  midTurn, noticeOf, parse, parseRecords, prompt, promptOf, recentOf, report, reportData, sameModel, seedPrompt, SHORT, shortModel, modelsSplit, SYSTEM, wholeRequest,
+  midTurn, noticeOf, parse, parseRecords, prompt, promptOf, recentOf, report, reportData, sameModel, seedPrompt, SHORT, shortModel, modelsSplit, SYSTEM, testStage, wholeRequest,
 } from './route'
 import type { Aside, Step } from './route'
 import { board as drawBoard, PANE, PANE_TITLE } from './board'
@@ -226,7 +226,7 @@ async function setPlan($: EngineInterface, isPlan: boolean) {
     await update($, task, () => ({
       phase: 'plan' as const, hard: false, effort, text: t?.text ?? '',
       ...(lastPick?.asked ? { asked: lastPick.asked } : {}), ...(lastPick?.build ? { build: lastPick.build } : {}),
-      ...(lastPick?.buildModel ? { buildModel: lastPick.buildModel } : {}),
+      ...(lastPick?.buildModel ? { buildModel: lastPick.buildModel } : {}), ...testStage(lastPick, t),
     }))
     await update($, arm, () => 'auto' as const)
     // Through settle, so the status line, the trail and the band show it: the classic hook that reports plan mode
@@ -357,12 +357,12 @@ async function briefed($: EngineInterface, text: string) {
 async function asks($: EngineInterface, said: Route | null) {
   // A model named with it toasts once, with the effort (wantModel).
   const quiet = !!said?.model
-  if (!said?.asked && !said?.build && !said?.buildModel) return
+  if (!said?.asked && !said?.build && !said?.buildModel && !said?.testModel && !said?.test) return
   const t = await read($, task)
   if (!t) return
   await update($, task, () => ({
     ...t, ...(said.asked ? { asked: said.asked, effort: said.asked } : {}), ...(said.build ? { build: said.build } : {}),
-    ...(said.buildModel ? { buildModel: said.buildModel } : {}),
+    ...(said.buildModel ? { buildModel: said.buildModel } : {}), ...testStage(said, t),
   }))
   if (!said.asked && !said.build) return
   const r = await read($, route)
@@ -422,14 +422,66 @@ let toldOn: string | null = null
 let toldBuild: string | null = null
 /**
  * A plan holds a model asked for carrying it out: say once that the pilot switches to it when building starts, so the
- * model does not read "implement on sonnet" as work of its own (a subagent on that model).
+ * model does not read "implement on sonnet" as work of its own (a subagent on that model). A test stage it holds is said
+ * once too: it runs in a subagent once building has started.
  */
 async function buildNote($: EngineInterface) {
   const t = await read($, task)
-  if (t?.phase !== 'plan' || !t.buildModel || toldBuild === t.buildModel) return
-  toldBuild = t.buildModel
-  const line = `Effort Pilot: the plan will be carried out on ${t.buildModel}${t.build ? ` at ${t.build}` : ''}, as you asked; the pilot switches to it when building starts.`
+  const test = testWords(t)
+  if (t?.phase !== 'plan' || (!t.buildModel && !test)) return
+  const key = `${t.buildModel ?? ''}|${test ?? ''}`
+  if (toldBuild === key) return
+  toldBuild = key
+  const build = t.buildModel ? `the plan will be carried out on ${t.buildModel}${t.build ? ` at ${t.build}` : ''}, as you asked; the pilot switches to it when building starts.` : ''
+  const tests = test ? `${build ? 'Testing' : 'testing'} and review of the built work will run in a subagent ${test}, as you asked.` : ''
+  const line = `Effort Pilot: ${[build, tests].filter(Boolean).join(' ')}`
   told = told ? `${told} ${line}` : line
+}
+/** A test stage in words: "on haiku at low", "on haiku", "at low"; null where the work holds none. */
+function testWords(t: Pick<Task, 'testModel' | 'test'> | null) {
+  if (!t?.testModel && !t?.test) return null
+  return [t.testModel ? `on ${t.testModel}` : '', t.test ? `at ${t.test}` : ''].filter(Boolean).join(' ')
+}
+/** A test stage, short, for the status line and the band: "test: haiku·low". Empty where the work holds none. */
+function testTag(t: Pick<Task, 'testModel' | 'test'> | null) {
+  if (!t?.testModel && !t?.test) return ''
+  return `test: ${[t.testModel ? shortModel(t.testModel) : '', t.test ? SHORT[t.test] : ''].filter(Boolean).join('·')}`
+}
+/** The test stage the work under way holds while the pilot steers the session (on, not paused, on a model it steers). */
+async function heldTest($: EngineInterface): Promise<Task | null> {
+  if ((await read($, mode)) !== 'auto' || (await read($, pin)) !== null || !managed(await read($, model))) return null
+  const t = await read($, task)
+  return t && (t.testModel || t.test) ? t : null
+}
+/**
+ * The effort a subagent spawned on this model (the Agent call's model) goes at for the test stage: the one the person
+ * named, where the work under way is a build holding a stage on that model; else undefined.
+ */
+async function testFor($: EngineInterface, on: string | undefined): Promise<Effort | undefined> {
+  const t = await heldTest($)
+  if (!on || !t?.testModel || !t.test || (t.phase !== 'implement' && t.phase !== 'fix')) return undefined
+  return isModel(t.testModel, on) || isModel(on, t.testModel) ? t.test : undefined
+}
+// The test stage last told in full, with the work it was told for: later turns of that work get a short reminder.
+let testTold: string | null = null
+/**
+ * While the work under way is a build that holds a test stage, the model is told to run testing and review in a
+ * subagent on the model and effort the person named, not to switch itself: a subagent starts with a fresh, small
+ * context, so it costs no request without the prompt cache, where a switch of the main loop's model would. In full once
+ * the stage takes effect (with a notice for the person), then one short reminder a turn of the same work. fresh: only
+ * the full line, none where it was told already (a message typed mid-turn).
+ */
+async function testLine($: EngineInterface, fresh = false): Promise<string | null> {
+  const t = await heldTest($)
+  if (!t || (t.phase !== 'implement' && t.phase !== 'fix')) return null
+  const key = `${t.text}\n${t.testModel ?? ''}\n${t.test ?? ''}`
+  const call = [t.testModel ? `model "${t.testModel}"` : '', t.test ? `effort "${t.test}"` : ''].filter(Boolean).join(' and ')
+  if (key === testTold) return fresh ? null : `Reminder from the Effort Pilot plugin: testing and review of this work go to a subagent (Agent tool) with ${call}, as the person asked; do not switch yourself.`
+  testTold = key
+  const words = testWords(t)!
+  await $.session.append({ message: { type: 'system', content: [{ type: 'text', text: `Effort Pilot: testing and review of this work will run in a subagent ${words}, as you asked.` }] } })
+    .catch(err => $.ui.log(`effort-pilot: could not show the test stage: ${String(err)}`))
+  return `From the Effort Pilot plugin: the person asked that testing and review of this work run ${words}. When you reach that stage, run it in a subagent (Agent tool) with ${call}, giving it what it needs to check. Do not switch yourself.`
 }
 /**
  * The context line a prompt goes with when the message switched the model (on: where this turn's requests now go), or
@@ -489,7 +541,9 @@ async function lines($: EngineInterface) {
   const out = [...(told ? [switchLine(told, toldOn)] : []), ...(stand ? [stand] : [])]
   stand = null
   await tell($)
-  return out
+  // After the switch's notice, so the person reads the build's line before the test stage's.
+  const test = await testLine($)
+  return test ? [...out, test] : out
 }
 // A switch asked for in a message typed mid-turn whose line the engine did not carry with the message (prompt.submit):
 // it goes with the main loop's next tool result, the first input the model reads after the request that carried the
@@ -716,6 +770,9 @@ async function delivered($: EngineInterface, kind: string, text: string, pre: Ea
   const plans = await forPlans($)
   if (took.route?.asked) await update($, arm, () => 'auto' as const)
   await update($, task, () => took.task)
+  // A test stage typed mid-turn for a build under way: its line goes with the next tool result.
+  const test = await testLine($, true)
+  if (test) midLine = midLine ? `${midLine} ${test}` : test
   const moves = (await forPlans($)) !== plans
   if (took.route) {
     await update($, blind, () => false)
@@ -742,7 +799,7 @@ async function noUltrathink($: EngineInterface) {
 async function classify($: EngineInterface, text: string, count = true, notice = false, midTurn = false): Promise<Route | null> {
   const said = prompt(text, await read($, task), await read($, route), await read($, lastAnswer), notice, midTurn, await noUltrathink($))
   const { route: r, took } = await ask($, said, count)
-  if (!r?.asked && !r?.build && !r?.release && !r?.model && !r?.buildModel) {
+  if (!r?.asked && !r?.build && !r?.release && !r?.model && !r?.buildModel && !r?.testModel && !r?.test) {
     await update($, latency, () => took)
     return r
   }
@@ -764,13 +821,16 @@ async function statusOf($: EngineInterface, next: Route) {
   // does not steer, the effort is the one asked with it, or the person's own.
   const name = await read($, model)
   const alt = await altModel($, name)
+  // The test stage the work holds, last.
+  const tag = testTag(await heldTest($))
+  const test = tag ? ` · ${tag}` : ''
   if (!control && alt && !managed(alt)) {
     const held = await aim($, name, true)
-    return `effort: ${held ? `${SHORT[held]} · you asked` : 'your own'}${next.phase === 'plan' ? ' · plan' : ''} · ${shortModel(alt)}`
+    return `effort: ${held ? `${SHORT[held]} · you asked` : 'your own'}${next.phase === 'plan' ? ' · plan' : ''} · ${shortModel(alt)}${test}`
   }
   return control
-    ? `effort: your own (control turn) · Effort Pilot would pick ${SHORT[next.effort]} · ${next.phase}`
-    : `effort${m === 'auto' ? '' : ` (${m})`}: ${label(next)}${alt ? ` · ${shortModel(alt)}` : ''}`
+    ? `effort: your own (control turn) · Effort Pilot would pick ${SHORT[next.effort]} · ${next.phase}${test}`
+    : `effort${m === 'auto' ? '' : ` (${m})`}: ${label(next)}${alt ? ` · ${shortModel(alt)}` : ''}${test}`
 }
 
 /** quiet: the message also switches the model, and the switch's own toast names the effort (wantModel). */
@@ -824,16 +884,18 @@ async function aim($: EngineInterface, name: string, any = false): Promise<Effor
  * effort. Only when that request goes at another effort than the one in effect. A context line does not do it: it
  * goes as a system message, not new input.
  */
-async function applyNow($: EngineInterface, purpose: string, line: string | null = null) {
+async function applyNow($: EngineInterface, purpose: string, line: string | null = null, also: string | null = null) {
   const name = await read($, model)
   const [w, next, alt] = [await read($, wire), await aim($, name), await altModel($, name)]
   // Another model is entered or left: the line says so, and the request after it goes on that model.
   const moves = lastModel !== null && !sameModel(lastModel, alt ?? name)
-  if (!line && !moves && (!w || !next || next === w)) return
+  const changed = moves || (!!w && !!next && next !== w)
+  if (!line && !changed && !also) return
   const where = !moves ? '' : alt ? `on ${alt}` : `back on the session's model (${name})`
-  const text = line ?? (next
+  const own = line ?? (!changed ? null : next
     ? `Effort Pilot: reasoning effort is now ${next}${where ? `, ${where}` : ''}, ${purpose}.`
     : `Effort Pilot: ${alt ? `the model is now ${alt}` : where}, ${purpose}.`)
+  const text = [own, also].filter(Boolean).join(' ')
   // Never throws: the tool has already run, and the hook must hand back its result.
   const added = await $.session.append({ message: { type: 'user', content: [{ type: 'text', text }] } }).catch(err => ({ deny: String(err) }))
   if (added.deny) $.ui.log(`effort-pilot: ${next ?? alt ?? name} waits for the next new input: ${added.deny}`)
@@ -890,6 +952,12 @@ async function modelBand($: EngineInterface, name: string) {
   return `on ${shortModel(alt)}${managed(alt) ? '' : held ? ` at ${SHORT[held]}` : ' at your own effort'}, as you asked · `
 }
 
+/** The test stage on the band: "test: haiku·low · "; empty where the work holds none. */
+const testBand = (t: Task | null) => {
+  const tag = testTag(t)
+  return tag ? `${tag} · ` : ''
+}
+
 /** How a route reads on the band, the status line and a toast: an effort the person asked for says so, not a phase. */
 const label = (r: Route) => (r.asked ? `${SHORT[r.effort]} · you asked` : `${SHORT[r.effort]} ${r.phase}`)
 const describe = (r: Route) => `${SHORT[r.effort]} ${r.phase}${r.hard ? ' (hard)' : ''}${r.continues ? ' (continues)' : ''}${r.kept ? ' (kept)' : ''} — ${r.why}`
@@ -919,9 +987,12 @@ type Decision = {
    * Why the pilot did not steer it, as known at spawn: the Agent call named an effort, CLAUDE_CODE_SUBAGENT_EFFORT is
    * set, the person's own say (shadow mode, /effort set by hand), a model a switch would rewrite the cache on, or its
    * brief was not classified (none, or no classifier answer), or a resumed run whose brief this module never saw (the
-   * plugin reloaded mid-run): its wake-up message is no brief. null: nothing held it back at spawn.
+   * plugin reloaded mid-run): its wake-up message is no brief. test: the person's test stage sets it (its model is the
+   * one they named for testing, and the call named no effort). null: nothing held it back at spawn.
    */
-  held: 'call' | 'env' | 'shadow' | 'pin' | 'aside' | 'unread' | 'resumed' | null
+  held: 'call' | 'env' | 'shadow' | 'pin' | 'aside' | 'test' | 'unread' | 'resumed' | null
+  /** The effort the person named for the test stage, for a run on its model (held test); dropped at its first request on a model that takes none. */
+  test?: Effort
   /** The level its description shows, set at spawn; null where none is shown. */
   shown: Effort | null
   /** Spawned by another subagent: a rewrite of its description is not reliably shown, so a transcript line tells it. */
@@ -1033,6 +1104,7 @@ const level = (x: unknown): Effort | null => (typeof x === 'string' ? (EFFORTS.f
 /** Why a subagent goes at the effort its first request carries, in words, and a word for the band (none: the pilot's). */
 function reasonOf(d: Decision, name: string): { text: string; tag?: string } {
   if (d.held === 'call') return { text: 'as the call asked', tag: 'call' }
+  if (d.held === 'test') return d.test ? { text: 'the test stage you asked for', tag: 'you asked' } : { text: `left as is: ${name} takes no effort level here`, tag: 'own' }
   if (d.held === 'env') return { text: 'CLAUDE_CODE_SUBAGENT_EFFORT', tag: 'env' }
   if (d.held === 'shadow') return { text: 'left as is: Effort Pilot is in shadow mode', tag: 'shadow' }
   if (d.held === 'pin') return { text: 'left at the session\'s: you set /effort by hand', tag: 'yours' }
@@ -1147,7 +1219,8 @@ export const register: Register = (on, options) => {
     const off = why ? ` · ${asideText(name, why)}` : ''
     const measured = measuring ? ` · measuring, ${Math.round(controlShare * 100)}% control turns` : ''
     const w = await read($, wanted)
-    const planNote = `${w ? ` · on ${w.model}${w.effort ? ` at ${w.effort}` : ''}, as you asked` : ''}${config.planModel ? ` · ${config.planForPlans ? 'plans and plan mode' : 'plan mode'} on ${config.planModel}` : ''}`
+    const stage = testWords(await heldTest($))
+    const planNote = `${w ? ` · on ${w.model}${w.effort ? ` at ${w.effort}` : ''}, as you asked` : ''}${stage ? ` · testing in a subagent ${stage}, as you asked` : ''}${config.planModel ? ` · ${config.planForPlans ? 'plans and plan mode' : 'plan mode'} on ${config.planModel}` : ''}`
     return { text: `Effort Pilot: ${await read($, mode)}${p ? `, pinned ${p}` : ''}${off}${planNote}${measured}` }
   })
 
@@ -1284,7 +1357,7 @@ export const register: Register = (on, options) => {
       await setPlan($, false)
       const line = await approved($, result.text ?? '')
       await publish($)
-      await applyNow($, 'for carrying out the approved plan', line)
+      await applyNow($, 'for carrying out the approved plan', line, await testLine($))
     }
     return result
   }).catch(($, e, next) => next(e))
@@ -1334,6 +1407,10 @@ export const register: Register = (on, options) => {
       : m !== 'auto' ? 'shadow' : (await read($, pin)) !== null ? 'pin'
       // Where a switch would rewrite the prompt cache, the subagent keeps the session's effort: nothing to classify.
       : aside(e.model ?? e.parentModel) !== null ? 'aside'
+      // The test stage the person named: a run on its model whose call named no effort goes at the effort named for it,
+      // on a model the pilot does not manage too (their words win there). A run it set keeps it when a message wakes it.
+      : e.resume && resumed?.held === 'test' ? 'test'
+      : !e.resume && (await testFor($, e.model)) ? 'test'
       // A resumed run with no brief seen (the plugin reloaded since its spawn), or whose brief was not classified, on
       // this wake-up or an earlier one: the message that wakes it is no brief, so it keeps the effort it carries.
       : e.resume && resumed?.held === 'unread' ? 'unread'
@@ -1343,6 +1420,7 @@ export const register: Register = (on, options) => {
       route: null, pick: null, task: resumed?.task ?? null, arm: 'auto', source: 'own', type: e.subagentType,
       description: e.description, checked: false, listed, acc: { ...EMPTY, at: await $.clock.now() }, model: '',
       held, shown: null, nested: e.parentAgentId !== undefined, told: resumed?.told,
+      ...(held === 'test' ? { test: e.resume ? resumed?.test : await testFor($, e.model) } : {}),
     }
     if (!held && (builtin || listed)) {
       const read0 = e.prompt.trim()
@@ -1364,7 +1442,8 @@ export const register: Register = (on, options) => {
     // Shown on the agent's line in the transcript where known now and it will hold: the pilot's level on a model it
     // steers, or the level the call or the setting names (a number is left out). A resumed run keeps its description.
     const known = d.source === 'auto' && managed(e.model ?? e.parentModel) ? d.route!.effort
-      : held === 'call' ? level(call) : held === 'env' ? level(env!.toLowerCase()) : null
+      : held === 'call' ? level(call) : held === 'env' ? level(env!.toLowerCase())
+      : held === 'test' && d.test && !wholeOn(e.model!) ? d.test : null
     let description = e.description
     if (known && !e.resume) {
       d.shown = known
@@ -1427,12 +1506,16 @@ export const register: Register = (on, options) => {
         // A model the pilot leaves alone, a number, or on the session's model an effort that is not the one the session
         // hands down: declared. On another model the effort is that model's saved one or its default, which no one
         // chose for this agent: steered by its brief. A listed agent's declared effort is not its decision.
-        if (!managed(e.model)) d.source = 'skip'
+        // The test stage's effort goes where the model takes a level that is the engine's, not a number the person set,
+        // and where a level costs no prompt cache (as an effort asked with a model for the main loop).
+        if (d.held === 'test') {
+          if (typeof e.effort !== 'string' || wholeOn(e.model)) d.test = undefined
+        } else if (!managed(e.model)) d.source = 'skip'
         else if (typeof e.effort === 'number') d.source = 'own'
         else if (!d.listed && sessionEffort !== undefined && sameModel(e.model, sessionModel) && e.effort !== sessionEffort) d.source = 'own'
         // What this request goes at, and why: told once a run in a transcript line where its description did not show
         // it, or always for a nested agent; a resumed run only when its effort changed.
-        const goes = d.source === 'auto' ? d.route!.effort : (e.effort ?? null)
+        const goes = d.source === 'auto' ? d.route!.effort : (d.test ?? e.effort ?? null)
         const why = reasonOf(d, e.model)
         d.seen = goes
         d.tag = why.tag
@@ -1443,7 +1526,7 @@ export const register: Register = (on, options) => {
         d.told = goes
         await showAgent($, e.agentId, d, 'running')
       }
-      const effort = d.source === 'auto' ? d.route?.effort : undefined
+      const effort = d.source === 'auto' ? d.route?.effort : d.test
       const began = await $.clock.now()
       const result = yield* next(effort ? { ...e, effort } : e)
       const took = (await $.clock.now()) - began
@@ -1652,7 +1735,7 @@ export const register: Register = (on, options) => {
             </Text>
           ))}
         </Box>
-        <Text dimColor>{(await read($, planMode)) ? `plan mode → ${await planBand($, current)} · ` : await modelBand($, current)}{w === 'notification' ? 'notification · ' : ''}{r.why}{ms ? ` · classified in ${(ms / 1000).toFixed(1)}s` : ''}</Text>
+        <Text dimColor>{(await read($, planMode)) ? `plan mode → ${await planBand($, current)} · ` : await modelBand($, current)}{testBand(await heldTest($))}{w === 'notification' ? 'notification · ' : ''}{r.why}{ms ? ` · classified in ${(ms / 1000).toFixed(1)}s` : ''}</Text>
         {shown.length ? (
           <Text dimColor>
             subagents: {shown.map(a => `${a.type} «${a.description.slice(0, 28)}» ${agentWord(a)}${a.status === 'done' ? ' ✓' : ''}`).join(' · ')}

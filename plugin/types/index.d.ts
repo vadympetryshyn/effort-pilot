@@ -38,6 +38,10 @@ export type Route = {
   model?: string
   /** The model the person asked for carrying out a plan, once it is made. */
   buildModel?: string
+  /** The model the person asked to run testing, checking or review of the built work on (in a subagent). */
+  testModel?: string
+  /** The effort the person asked for testing, checking or review of the built work. */
+  test?: Effort
   /** The person takes back an effort they asked for: the rule chooses again. */
   release?: boolean
   /** The message says the agent's last work fell short: wrong, broken, incomplete or misunderstood. */
@@ -56,6 +60,12 @@ export type Task = {
   build?: Effort
   /** A model the person asked for carrying out the plan this work makes. */
   buildModel?: string
+  /**
+   * The test stage the person asked for this work: the model and the effort testing, checking or review of it runs at,
+   * in a subagent once building has started. Follow-ups keep it until a new task.
+   */
+  testModel?: string
+  test?: Effort
 }
 
 /** One finished main-loop turn, as measuring keeps it. arm control: classified, but the effort was left as it was. */
