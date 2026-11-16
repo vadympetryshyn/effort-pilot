@@ -599,8 +599,22 @@ function routed(kind: string) {
   return kind === 'sdk' && headless
 }
 
-/** One Haiku call over the classifier's rules; its cost goes into the turn's record unless count is false. */
+/**
+ * The classifier's read of a text: one call, or in a run with no one at the prompt a second one after a read with no
+ * route (no answer, an unparseable one, or a failed call). There no one waits, and a first read lost to a timeout or an
+ * outage would leave the whole run's work unnamed: its later notifications would be routed with no work under way. An
+ * interactive session reads once, so a person never waits twice on an outage.
+ */
 async function ask($: EngineInterface, text: string, count: boolean) {
+  if (interactive !== false) return askOnce($, text, count)
+  const first = await askOnce($, text, count).catch(() => null)
+  if (first?.route) return first
+  const again = await askOnce($, text, count)
+  return { route: again.route, took: (first?.took ?? 0) + again.took }
+}
+
+/** One Haiku call over the classifier's rules; its cost goes into the turn's record unless count is false. */
+async function askOnce($: EngineInterface, text: string, count: boolean) {
   const started = await $.clock.now()
   const r = await $.model.complete({ model: 'haiku', effort: 'low', system: SYSTEM, prompt: text, maxTokens: 150, timeoutMs: 8000 })
   const took = Math.round((await $.clock.now()) - started)

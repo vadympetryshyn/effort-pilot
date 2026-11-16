@@ -2,6 +2,10 @@
 
 All notable changes. Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions: [SemVer](https://semver.org/).
 
+## [1.13.1] — 2026-11-16
+
+- In a run with no one at the prompt (`claude -p`, the Agent SDK, with the `headless` setting on), a message the classifier gives no answer for (a timeout, an outage, a reply it cannot read) is now read once more before the turn runs at the run's own effort. Before, a timeout on the run's first message left the work under way unknown for the whole run: every later notification (a background task finished, a scheduled prompt fired) was routed on its own, so a test run finishing in the middle of a build could go at `low`. The second read uses the same prompt, model and time limit, and happens only after a miss. Interactive sessions are unchanged: one read, so you never wait twice on an outage.
+
 ## [1.13.0] — 2026-11-15
 
 - A new setting, `planModelForPlans` (off by default): with `planModeModel` set, a plan you ask for outside plan mode also goes on that model, at the plan effort. "Plan the CSV export for the reports page", or a planning slash command such as `/create-plan …`, now runs on the plan model (say Fable) without plan mode and without naming the model each time. The model follows the work under way, not each message: a side question, a question about the plan or pushback on it ("no, the export goes inside the existing job") stays on the plan model with no new switch, only at its own effort as before. Once building starts ("looks good, build it"), or you start other work, your requests go back on the session's own model, the build at the build effort. A line and a toast say each switch ("planning on fable at high", "back on the session's model at medium for the build"), the status line and the band name the model, and the turn is recorded on the model its requests went on. A model you name in words still wins over the setting, subagents keep their own model, and plan mode works as before. Each switch costs one request that re-reads the conversation without the prompt cache. Off: only plan mode switches the model, as before.

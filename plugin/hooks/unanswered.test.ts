@@ -15,8 +15,11 @@ const STORE = `${HOME}/.claude/plugins/data/effort-pilot-inline/turns`
 const usage = { input_tokens: 10, output_tokens: 5, cache_read_input_tokens: 0, cache_creation_input_tokens: 0 }
 const pick = (phase: string, continues = false) => JSON.stringify({ phase, hard: false, continues, asked: 'none', build: 'none', faulted: false, why: `reads as ${phase}` })
 
-/** An interactive session on a managed model; the classifier answers each call from `replies`, in turn (null: no answer). */
-async function session($: Engine, on: On, replies: (string | null)[]) {
+/**
+ * A session on a managed model, interactive unless said; the classifier answers each call from `replies`, in turn
+ * (null: no answer; 'throw': the call fails).
+ */
+async function session($: Engine, on: On, replies: (string | null)[], isInteractive = true) {
   const seen = { calls: 0, sent: [] as unknown[], published: [] as unknown[], effective: undefined as unknown, status: [] as string[], files: new Map<string, string>() }
   on('command.register', () => ({ value: { command: 'effort-pilot' } }))
   on('session.model', () => ({ value: 'claude-opus-5-5' }))
@@ -35,6 +38,7 @@ async function session($: Engine, on: On, replies: (string | null)[]) {
   on('model.complete', () => {
     const reply = seen.calls < replies.length ? replies[seen.calls] : replies.at(-1)
     seen.calls++
+    if (reply === 'throw') throw new Error('classifier unreachable')
     return { value: reply === null ? { isAnswered: false as const, reason: 'aborted' as const, usage } : { isAnswered: true, text: reply!, usage } }
   })
   on('prompt.submit', (_$, e) => ({ text: e.text }))
@@ -45,6 +49,7 @@ async function session($: Engine, on: On, replies: (string | null)[]) {
   on('ui.toast', () => ({ value: undefined }))
   on('ui.log', () => ({ value: undefined }))
   on('session.start', () => ({ cwd: '/' }))
+  on('classic.SessionStart', () => ({}) as never)
   on('turn.start', (_$, e) => ({ turnId: e.turnId }))
   on('turn.step', async function* (_$, e) {
     seen.sent.push(e.effort)
@@ -57,7 +62,7 @@ async function session($: Engine, on: On, replies: (string | null)[]) {
     if (e.plugin === 'effort-pilot' && e.key === 'effective') seen.effective = (e.value as { value: unknown }).value
     return next(e)
   })
-  await $.session.start({ cwd: '/', surface: null, isInteractive: true })
+  await $.session.start({ cwd: '/', surface: null, isInteractive })
   return seen
 }
 
@@ -107,5 +112,60 @@ describe('a turn the classifier gives no answer for', () => {
     await start($, 't1', agentDone, 'task-notification')
     expect(seen.sent).toEqual(['high'])
     expect(seen.published).toEqual([null])
+  })
+})
+
+// A run with no one at the prompt (claude -p, the Agent SDK) asks again once: no one waits there, and a first read lost
+// to a timeout would leave the whole run's later notifications routed with no work under way.
+const BRIEF = 'Add a short usage note to the README under the install section. Commit your own paths.'
+const testsDone = '<task-notification><task-id>b1</task-id><status>completed</status><summary>Background command "npm test" completed</summary></task-notification>'
+
+describe('in a run with no one at the prompt, a read the classifier gives no answer for', () => {
+  test('is asked once more, and the turn goes at its pick', { options: { headless: true } }, async ($, on) => {
+    const seen = await session($, on, [null, pick('implement'), pick('chat')], false)
+    await turn($, 't1', 'Add a CSV option to the export.', 'sdk')
+    expect(seen.calls).toBe(2)
+    expect(seen.sent).toEqual(['medium'])
+    // The work under way is known: a later notification is held at it, not taken at its own low pick.
+    await start($, 't2', testsDone, 'task-notification')
+    expect(seen.calls).toBe(3)
+    expect(seen.sent).toEqual(['medium', 'medium'])
+  })
+
+  test('is asked once more after a failed call too', { options: { headless: true } }, async ($, on) => {
+    const seen = await session($, on, ['throw', pick('implement')], false)
+    await start($, 't1', 'Add a CSV option to the export.', 'sdk')
+    expect(seen.calls).toBe(2)
+    expect(seen.sent).toEqual(['medium'])
+  })
+
+  test('runs at the run\'s own effort when the second read gives none either, asked no third time', { options: { headless: true } }, async ($, on) => {
+    const seen = await session($, on, [null, null, pick('implement')], false)
+    await start($, 't1', 'Add a CSV option to the export.', 'sdk')
+    expect(seen.calls).toBe(2)
+    expect(seen.sent).toEqual(['high'])
+  })
+
+  test('as a session agent\'s brief, is asked once more and names the work for later notifications', { options: { headless: true } }, async ($, on) => {
+    const seen = await session($, on, [null, pick('implement'), pick('chat')], false)
+    await $.classic.SessionStart({ source: 'startup', agent_type: 'lab:builder' } as never)
+    await turn($, 't1', BRIEF, 'sdk')
+    expect(seen.calls).toBe(2)
+    expect(seen.sent).toEqual(['medium'])
+    await start($, 't2', testsDone, 'task-notification')
+    expect(seen.sent).toEqual(['medium', 'medium'])
+  })
+
+  test('a read that answers is not asked again', { options: { headless: true } }, async ($, on) => {
+    const seen = await session($, on, [pick('implement')], false)
+    await start($, 't1', 'Add a CSV option to the export.', 'sdk')
+    expect(seen.calls).toBe(1)
+  })
+
+  test('in an interactive session is not asked again: the turn runs at the person\'s own effort', async ($, on) => {
+    const seen = await session($, on, [null, pick('implement')])
+    await start($, 't1', 'Add a CSV option to the export.')
+    expect(seen.calls).toBe(1)
+    expect(seen.sent).toEqual(['high'])
   })
 })
