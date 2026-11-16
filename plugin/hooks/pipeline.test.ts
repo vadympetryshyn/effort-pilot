@@ -196,8 +196,18 @@ test('a three-stage message: plan on fable at high, build on the session\'s opus
   expect(seen.notices.at(-1)).toBe(NOTICE)
   expect(seen.status.at(-1)).toContain('test: haiku·low')
   expect(await run($)).toContain('testing in a subagent on haiku at low, as you asked')
+  expect(seen.notices.filter(x => x === NOTICE)).toHaveLength(1)
+})
+
+test('a side question during the build gets no reminder and keeps the stage; the next turn that works the build gets it again', async ($, on) => {
+  const seen = engine(on, { 'Add slugify': BUILD_TESTED, 'what does git rebase do': ASIDE, 'now finish it': GO })
+  await said($, 'Add slugify, then test it on haiku at low')
+  expect(seen.context).toEqual([FULL])
   seen.context.length = 0
-  await said($, 'what port is it on?')
+  await said($, 'what does git rebase do?')
+  expect(seen.context).toEqual([])
+  expect(seen.status.at(-1)).toContain('test: haiku·low')
+  await said($, 'now finish it')
   expect(seen.context).toEqual([REMINDER])
   expect(seen.notices.filter(x => x === NOTICE)).toHaveLength(1)
 })

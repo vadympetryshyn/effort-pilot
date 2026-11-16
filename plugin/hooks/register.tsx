@@ -468,7 +468,8 @@ let testTold: string | null = null
  * While the work under way is a build that holds a test stage, the model is told to run testing and review in a
  * subagent on the model and effort the person named, not to switch itself: a subagent starts with a fresh, small
  * context, so it costs no request without the prompt cache, where a switch of the main loop's model would. In full once
- * the stage takes effect (with a notice for the person), then one short reminder a turn of the same work. fresh: only
+ * the stage takes effect (with a notice for the person), then one short reminder on each later turn that works the build
+ * (none on a side question or a closing word, routed chat or trivial). fresh: only
  * the full line, none where it was told already (a message typed mid-turn).
  */
 async function testLine($: EngineInterface, fresh = false): Promise<string | null> {
@@ -476,7 +477,13 @@ async function testLine($: EngineInterface, fresh = false): Promise<string | nul
   if (!t || (t.phase !== 'implement' && t.phase !== 'fix')) return null
   const key = `${t.text}\n${t.testModel ?? ''}\n${t.test ?? ''}`
   const call = [t.testModel ? `model "${t.testModel}"` : '', t.test ? `effort "${t.test}"` : ''].filter(Boolean).join(' and ')
-  if (key === testTold) return fresh ? null : `Reminder from the Effort Pilot plugin: testing and review of this work go to a subagent (Agent tool) with ${call}, as the person asked; do not switch yourself.`
+  if (key === testTold) {
+    // A turn that does not work the build (a side question, a closing word: routed chat or trivial) gets no reminder;
+    // the stage stays held for the build's next turn.
+    const phase = (await read($, route))?.phase
+    if (fresh || phase === 'chat' || phase === 'trivial') return null
+    return `Reminder from the Effort Pilot plugin: testing and review of this work go to a subagent (Agent tool) with ${call}, as the person asked; do not switch yourself.`
+  }
   testTold = key
   const words = testWords(t)!
   await $.session.append({ message: { type: 'system', content: [{ type: 'text', text: `Effort Pilot: testing and review of this work will run in a subagent ${words}, as you asked.` }] } })
