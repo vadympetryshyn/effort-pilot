@@ -418,26 +418,26 @@ describe('what a switch tells the person and the model', () => {
     expect(seen.toasts.at(-1)).toBe(`Effort Pilot: claude-sonnet-9-9 is not available here; back on ${SESSION}`)
     expect(seen.status.at(-1)).toBe('effort: back on opus-5-5 · claude-sonnet-9-9 is not available')
   })
-  test('in shadow mode a switch is not made, and the line says so', async ($, on) => {
+  test('in shadow mode a switch is not made, and the line says so, in a toast the person sees', async ($, on) => {
     const seen = engine(on, { 'switch me to sonnet': SONNET_MEDIUM })
     await run($, 'effort-pilot', 'shadow')
     await said($, 'switch me to sonnet at medium')
     expect(seen.models).toEqual([SESSION])
-    expect(seen.toasts).toEqual([])
+    expect(seen.toasts).toEqual(['Effort Pilot is in shadow mode: it does not switch the model (/effort-pilot on lets it, or use /model).'])
     expect(seen.notices).toEqual(['Effort Pilot is in shadow mode: it does not switch the model (/effort-pilot on lets it, or use /model).'])
     expect(seen.context[0]).toStartWith('A note from the Effort Pilot plugin; nothing to do for it now.')
   })
-  test('a build model for later is not said to take effect now', async ($, on) => {
+  test('a build model for later is not said to take effect now; the person sees it in a toast', async ($, on) => {
     const seen = engine(on, { 'plan adding hello.txt': reply({ phase: 'plan', buildModel: 'sonnet' }) })
     await said($, 'plan adding hello.txt, then implement on sonnet')
     expect(seen.models).toEqual([SESSION])
-    expect(seen.toasts).toEqual([])
+    expect(seen.toasts).toEqual(['Effort Pilot: the plan will be carried out on sonnet, as you asked; the pilot switches to it when building starts.'])
     expect(seen.context).toEqual(['A note from the Effort Pilot plugin; nothing to do for it now. Effort Pilot: the plan will be carried out on sonnet, as you asked; the pilot switches to it when building starts.'])
   })
   test('a plan model and a build model: the context names only the plan model as in effect', async ($, on) => {
     const seen = engine(on, { 'plan adding hello.txt': PLAN_BOTH })
     await said($, 'plan adding hello.txt on fable at high, then implement on sonnet at medium')
-    expect(seen.toasts).toEqual(['Effort Pilot: planning on fable at high'])
+    expect(seen.toasts).toEqual(['Effort Pilot: planning on fable at high', 'Effort Pilot: the plan will be carried out on sonnet at medium, as you asked; the pilot switches to it when building starts.'])
     expect(seen.context[0]).toStartWith('The Effort Pilot plugin already sends this turn\'s requests to fable, as the person asked: you run on fable now')
     expect(seen.context[0]).toContain('the pilot switches to it when building starts')
     expect(seen.context).toHaveLength(1)

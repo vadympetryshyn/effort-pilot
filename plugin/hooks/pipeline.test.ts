@@ -35,7 +35,7 @@ const NOTICE = 'Effort Pilot: read a test stage on haiku at low in your message:
 function engine(on: On, replies: Record<string, string | string[]> = {}) {
   const seen = {
     models: [] as string[], sent: [] as unknown[], agents: [] as { model: string; effort: unknown }[], spawned: [] as string[],
-    notices: [] as string[], added: [] as string[], context: [] as string[], status: [] as string[],
+    notices: [] as string[], added: [] as string[], context: [] as string[], status: [] as string[], toasts: [] as string[],
   }
   const calls = new Map<string, number>()
   on('command.register', () => ({ value: { command: 'effort-pilot' } }))
@@ -65,7 +65,10 @@ function engine(on: On, replies: Record<string, string | string[]> = {}) {
   on('fs.write', () => ({ value: undefined }))
   on('fs.list', () => ({ value: [] }))
   on('turn.complete', () => ({ text: 'done' }))
-  on('ui.toast', () => ({ value: undefined }))
+  on('ui.toast', (_$, e) => {
+    seen.toasts.push(String((e as { text?: unknown }).text ?? ''))
+    return { value: undefined }
+  })
   on('ui.log', () => ({ value: undefined }))
   on('ui.render', () => ({ type: 'Box', children: [] }) as never)
   on('command.run', () => ({ text: '' }))
@@ -188,6 +191,7 @@ test('a three-stage message: plan on fable at high, build on the session\'s opus
   await said($, 'Plan on fable at high, build on opus at medium, test on haiku at low: add slugify')
   expect(seen.context.some(c => c.includes('Read a test stage on haiku at low in your message: testing and review of the built work will go to a subagent.'))).toBe(true)
   expect(seen.context.some(c => c.includes('Do not switch yourself'))).toBe(false)
+  expect(seen.toasts.some(t => t.endsWith('Read a test stage on haiku at low in your message: testing and review of the built work will go to a subagent.'))).toBe(true)
   seen.context.length = 0
   await said($, 'go')
   expect(seen.models).toEqual(['fable', SESSION])
@@ -197,6 +201,8 @@ test('a three-stage message: plan on fable at high, build on the session\'s opus
   expect(seen.status.at(-1)).toContain('test: haiku·low')
   expect(await run($)).toContain('testing in a subagent on haiku at low, as you asked')
   expect(seen.notices.filter(x => x === NOTICE)).toHaveLength(1)
+  // The notice row is drawn only in the verbose view: the person sees the toast.
+  expect(seen.toasts.filter(x => x === NOTICE)).toHaveLength(1)
 })
 
 test('a side question during the build gets no reminder and keeps the stage; the next turn that works the build gets it again', async ($, on) => {
@@ -210,6 +216,7 @@ test('a side question during the build gets no reminder and keeps the stage; the
   await said($, 'now finish it')
   expect(seen.context).toEqual([REMINDER])
   expect(seen.notices.filter(x => x === NOTICE)).toHaveLength(1)
+  expect(seen.toasts.filter(x => x === NOTICE)).toHaveLength(1)
 })
 
 test('a plan approved mid-turn tells the model of the test stage with the approval', async ($, on) => {
@@ -260,6 +267,7 @@ test('a test stage typed mid-turn goes with the next tool result', async ($, on)
   const r = await $.tool.call({ tool: 'Bash', command: 'ls', tool_use_id: 'tu9' } as never) as { context?: string[] }
   expect(r.context).toEqual([FULL])
   expect(seen.notices).toEqual([NOTICE])
+  expect(seen.toasts).toContain(NOTICE)
 })
 
 describe('a subagent on the test model', () => {

@@ -1,7 +1,7 @@
 import { describe, expect } from 'claude-code/testing'
 import { test } from './testkit'
 
-import { cacheInstall, installedVersion, newer, staleLine, versionWatch } from './installed'
+import { cacheInstall, installedVersion, newer, newerInstalled, staleLine, versionWatch } from './installed'
 
 // A session keeps the plugin code it loaded until /reload-plugins; a newer version installed meanwhile is said once.
 
@@ -114,5 +114,71 @@ describe('the notice', () => {
     expect(w.due(2_000)).toBe(false)
     expect(w.due(300_999)).toBe(false)
     expect(w.due(301_000)).toBe(true)
+  })
+})
+
+describe('the toast a person\'s turn shows', () => {
+  /** A stand-in for the engine: the registry at its path, the clock, and the toasts shown. */
+  const io = (root: string, files: Record<string, string | Error>, now = { t: 0 }) => {
+    const toasts: string[] = []
+    return {
+      toasts, now,
+      plugin: { root, name: 'effort-pilot' },
+      clock: { now: async () => now.t },
+      fs: {
+        exists: async (p: string) => p in files,
+        read: async (p: string) => {
+          const v = files[p]
+          if (v === undefined || v instanceof Error) throw v ?? new Error('missing')
+          return v
+        },
+      },
+      session: { root: async () => PROJECT },
+      ui: { toast: (text: string) => void toasts.push(text) },
+    }
+  }
+  const REGISTRY = `${CONFIG}/plugins/installed_plugins.json`
+
+  test('a newer installed version shows one toast, once', async () => {
+    const $ = io(ROOT, { [REGISTRY]: registry(user('1.16.0')) })
+    const w = versionWatch(300_000)
+    await newerInstalled($, w)
+    $.now.t = 400_000
+    await newerInstalled($, w)
+    expect($.toasts).toEqual([staleLine('1.16.0', '1.15.0')])
+  })
+
+  test('the same, an older, a missing or an unreadable registry shows none', async () => {
+    const cases: Record<string, string | Error>[] = [{ [REGISTRY]: registry(user('1.15.0')) }, { [REGISTRY]: registry(user('1.14.0')) }, {}, { [REGISTRY]: new Error('denied') }, { [REGISTRY]: '{oops' }]
+    for (const files of cases) {
+      const $ = io(ROOT, files)
+      await newerInstalled($, versionWatch())
+      expect($.toasts).toEqual([])
+    }
+  })
+
+  test('a plugin loaded from a folder reads no registry and shows none', async () => {
+    let read = false
+    const $ = io('/home/someone/code/effort-pilot/plugin', {})
+    $.fs.exists = async () => {
+      read = true
+      return true
+    }
+    await newerInstalled($, versionWatch())
+    expect(read).toBe(false)
+    expect($.toasts).toEqual([])
+  })
+
+  test('a turn within the few minutes after a read reads nothing', async () => {
+    const $ = io(ROOT, { [REGISTRY]: registry(user('1.15.0')) })
+    const w = versionWatch(300_000)
+    await newerInstalled($, w)
+    $.fs.read = async () => registry(user('1.16.0'))
+    $.now.t = 60_000
+    await newerInstalled($, w)
+    expect($.toasts).toEqual([])
+    $.now.t = 300_000
+    await newerInstalled($, w)
+    expect($.toasts).toEqual([staleLine('1.16.0', '1.15.0')])
   })
 })

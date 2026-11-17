@@ -9,7 +9,7 @@ import {
 import type { Aside, Step } from './route'
 import { board as drawBoard, PANE, PANE_TITLE } from './board'
 import { bySlot, dataDir, fresh, KEEP_DAYS, legacyDir, pack, slotFile, stale } from './store'
-import { cacheInstall, versionWatch } from './installed'
+import { newerInstalled, versionWatch } from './installed'
 
 // The settings (userConfig), read once per load: a change in /config reloads the module with the new values.
 let config: Config = DEFAULTS
@@ -390,6 +390,8 @@ async function wantModel($: EngineInterface, r: Route, how: { plan: boolean; bui
   // Shadow mode only shows what the pilot would do: it switches no model, and says so rather than claim a switch.
   if ((await read($, mode)) !== 'auto') {
     told = `Effort Pilot is in shadow mode: it does not switch the model (/effort-pilot on lets it, or use /model).`
+    // A notice row is drawn only in the verbose view: the toast is what the person sees.
+    $.ui.toast(told, { timeoutMs: READ_MS })
     return
   }
   const name = await read($, model)
@@ -437,7 +439,10 @@ async function buildNote($: EngineInterface) {
   const tests = test ? `${build ? 'Read' : 'read'} a test stage ${test} in your message: testing and review of the built work will go to a subagent.` : ''
   const line = `Effort Pilot: ${[build, tests].filter(Boolean).join(' ')}`
   told = told ? `${told} ${line}` : line
+  $.ui.toast(line, { timeoutMs: READ_MS })
 }
+// How long a toast that says more than a switch stays: long enough to read a sentence or two.
+const READ_MS = 8000
 /** A test stage in words: "on haiku at low", "on haiku", "at low"; null where the work holds none. */
 function testWords(t: Pick<Task, 'testModel' | 'test'> | null) {
   if (!t?.testModel && !t?.test) return null
@@ -487,7 +492,10 @@ async function testLine($: EngineInterface, fresh = false): Promise<string | nul
   }
   testTold = key
   const words = testWords(t)!
-  await $.session.append({ message: { type: 'system', content: [{ type: 'text', text: `Effort Pilot: read a test stage ${words} in your message: testing and review of this work go to a subagent.` }] } })
+  const notice = `Effort Pilot: read a test stage ${words} in your message: testing and review of this work go to a subagent.`
+  // The toast is what the person sees; the notice row (drawn only in the verbose view) keeps it in the transcript.
+  $.ui.toast(notice, { timeoutMs: READ_MS })
+  await $.session.append({ message: { type: 'system', content: [{ type: 'text', text: notice }] } })
     .catch(err => $.ui.log(`effort-pilot: could not show the test stage: ${String(err)}`))
   return `From the Effort Pilot plugin: it read a test stage ${words} in the person's message. When you reach testing and review of this work, run them in a subagent (Agent tool) with ${call}, giving it what it needs to check. Do not switch yourself. If their words named that model or level for something the work builds or sets up (a job, a script, a setting, an API call), not for testing this work, ignore this line.`
 }
@@ -648,19 +656,6 @@ async function reset($: EngineInterface) {
 
 // A newer version installed while this session runs: the person is told once a version (installed.ts).
 const watch = versionWatch()
-/**
- * On a person's turn, at most once every few minutes: the version Claude Code's install registry holds for this plugin
- * against the one this session runs. Nothing for a plugin loaded from a folder (--plugin-dir) or an unreadable registry.
- */
-async function newerInstalled($: EngineInterface) {
-  const at = cacheInstall($.plugin.root, $.plugin.name)
-  if (!at || !watch.due(await $.clock.now())) return
-  const text = (await $.fs.exists(at.registry).catch(() => false)) ? await readOr($, at.registry) : null
-  const line = watch.line(text, at.key, at.running, await $.session.root().catch(() => ''))
-  if (!line) return
-  await $.session.append({ message: { type: 'system', content: [{ type: 'text', text: line }] } })
-    .catch(err => $.ui.log(`effort-pilot: ${line} (${String(err)})`))
-}
 
 // Who may be routed: what a person typed, and the notifications that start a turn of their own (a background task
 // finished, a scheduled prompt fired, another Claude session's message). A headless session (claude -p, the Agent SDK)
@@ -1323,7 +1318,7 @@ export const register: Register = (on, options) => {
     if (e.origin.kind === 'sdk') interactive = false
     else if (LIVE.has(e.origin.kind)) interactive = true
     // A person's prompt: a newer version installed since this session loaded the plugin is said, once a version.
-    if (LIVE.has(e.origin.kind) && !e.isMeta) await newerInstalled($).catch(err => $.ui.log(`effort-pilot: could not read the installed version: ${String(err)}`))
+    if (LIVE.has(e.origin.kind) && !e.isMeta) await newerInstalled($, watch).catch(err => $.ui.log(`effort-pilot: could not read the installed version: ${String(err)}`))
     if (e.turnId !== undefined && mainTurn !== null) {
       if (e.command || e.isMeta || NOTICE.has(e.origin.kind)) return next(e)
       // Read now (one classification, before the message is queued): a switch it asks for goes with it, as a first

@@ -1,4 +1,4 @@
-// Whether a newer version of this plugin is installed than the one a session runs. Pure: register.tsx does the reading.
+// Whether a newer version of this plugin is installed than the one a session runs, and the toast that says so.
 //
 // `claude plugin update` installs a new version into its own cache folder and records it in Claude Code's install
 // registry, but a session already running keeps the code it loaded until the person types /reload-plugins, and Claude
@@ -90,4 +90,29 @@ export function versionWatch(every = CHECK_MS) {
       return staleLine(v, running)
     },
   }
+}
+
+/** What newerInstalled uses of the engine's `$`. */
+export type Io = {
+  plugin: { root: string; name: string }
+  clock: { now(): Promise<number> }
+  fs: { exists(path: string): Promise<boolean>; read(path: string): Promise<unknown> }
+  session: { root(): Promise<string> }
+  ui: { toast(text: string, options?: { timeoutMs?: number }): void }
+}
+/** How long the notice stays: long enough to read and type the command it names. */
+export const NOTICE_MS = 15_000
+
+/**
+ * On a person's turn, at most once every few minutes: the version Claude Code's install registry holds for this plugin
+ * against the one this session runs, and a toast where it is newer. A toast, not a notice row: a row is drawn only in
+ * the verbose view. Nothing for a plugin loaded from a folder (--plugin-dir) or an unreadable registry; never throws.
+ */
+export async function newerInstalled($: Io, watch: ReturnType<typeof versionWatch>) {
+  const at = cacheInstall($.plugin.root, $.plugin.name)
+  if (!at || !watch.due(await $.clock.now())) return
+  const exists = await $.fs.exists(at.registry).catch(() => false)
+  const read = exists ? await $.fs.read(at.registry).catch(() => null) : null
+  const line = watch.line(typeof read === 'string' ? read : null, at.key, at.running, await $.session.root().catch(() => ''))
+  if (line) $.ui.toast(line, { timeoutMs: NOTICE_MS })
 }
