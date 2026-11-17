@@ -9,6 +9,7 @@ import {
 import type { Aside, Step } from './route'
 import { board as drawBoard, PANE, PANE_TITLE } from './board'
 import { bySlot, dataDir, fresh, KEEP_DAYS, legacyDir, pack, slotFile, stale } from './store'
+import { cacheInstall, versionWatch } from './installed'
 
 // The settings (userConfig), read once per load: a change in /config reloads the module with the new values.
 let config: Config = DEFAULTS
@@ -643,6 +644,22 @@ async function reset($: EngineInterface) {
     }
   }
   return cleared
+}
+
+// A newer version installed while this session runs: the person is told once a version (installed.ts).
+const watch = versionWatch()
+/**
+ * On a person's turn, at most once every few minutes: the version Claude Code's install registry holds for this plugin
+ * against the one this session runs. Nothing for a plugin loaded from a folder (--plugin-dir) or an unreadable registry.
+ */
+async function newerInstalled($: EngineInterface) {
+  const at = cacheInstall($.plugin.root, $.plugin.name)
+  if (!at || !watch.due(await $.clock.now())) return
+  const text = (await $.fs.exists(at.registry).catch(() => false)) ? await readOr($, at.registry) : null
+  const line = watch.line(text, at.key, at.running, await $.session.root().catch(() => ''))
+  if (!line) return
+  await $.session.append({ message: { type: 'system', content: [{ type: 'text', text: line }] } })
+    .catch(err => $.ui.log(`effort-pilot: ${line} (${String(err)})`))
 }
 
 // Who may be routed: what a person typed, and the notifications that start a turn of their own (a background task
@@ -1305,6 +1322,8 @@ export const register: Register = (on, options) => {
     await resume($)
     if (e.origin.kind === 'sdk') interactive = false
     else if (LIVE.has(e.origin.kind)) interactive = true
+    // A person's prompt: a newer version installed since this session loaded the plugin is said, once a version.
+    if (LIVE.has(e.origin.kind) && !e.isMeta) await newerInstalled($).catch(err => $.ui.log(`effort-pilot: could not read the installed version: ${String(err)}`))
     if (e.turnId !== undefined && mainTurn !== null) {
       if (e.command || e.isMeta || NOTICE.has(e.origin.kind)) return next(e)
       // Read now (one classification, before the message is queued): a switch it asks for goes with it, as a first
