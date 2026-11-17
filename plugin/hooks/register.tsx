@@ -3,8 +3,8 @@ import type { EngineInterface, Register, TurnStepResult } from 'claude-code'
 
 import type { AgentRun, Config, Effort, Mode, Route, Spend, Tally, Task, TurnRecord, Who } from '../types'
 import {
-  afterPlan, agreed, asideText, isModel, briefPrompt, cacheRewritten, commandText, unasked, carry, configFrom, DEFAULTS, EFFORTS, flagOn, forAgent, forNotice, fromBrief, listedAgent, managed as managedBy, versionOf,
-  midTurn, noticeOf, parse, parseRecords, prompt, promptOf, recentOf, report, reportData, sameModel, seedPrompt, SHORT, shortModel, modelsSplit, SYSTEM, testStage, wholeRequest,
+  afterPlan, agreed, asideText, isModel, briefPrompt, cacheRewritten, commandText, unasked, carry, configFrom, DEFAULTS, EFFORTS, flagOn, forAgent, forNotice, forSkill, fromBrief, listedAgent, managed as managedBy, versionOf,
+  midTurn, noticeOf, parse, parseRecords, prompt, promptOf, recentOf, report, reportData, sameModel, seedPrompt, SHORT, shortModel, skillPrompt, modelsSplit, SYSTEM, testStage, wholeRequest,
 } from './route'
 import type { Aside, Step } from './route'
 import { board as drawBoard, PANE, PANE_TITLE } from './board'
@@ -935,6 +935,37 @@ async function approved($: EngineInterface, plan: string): Promise<string | null
   return line
 }
 
+/**
+ * The main loop loads a skill while the work under way is a plan read outside plan mode: no new message comes when the
+ * agent moves on from planning to carrying the plan out in the same turn ("plan it all, then implement"), so the skill
+ * is read. One that carries the plan out sets what an approved plan sets (the build effort, the build model or the
+ * session's own), with the line, toast and status building a plan gets, from the very next request; any other read, or
+ * none, changes nothing. Only while the pilot steers the session's turn on a model it manages; plan mode's exit does
+ * it there.
+ */
+async function skillLoaded($: EngineInterface, name: string, args: string) {
+  if ((await read($, planMode)) || (await read($, mode)) !== 'auto' || (await read($, pin)) !== null) return
+  if ((await read($, who)) === null || !managed(await modelOf($))) return
+  const t = await read($, task)
+  if (t?.phase !== 'plan') return
+  const { route: pick } = await ask($, skillPrompt(name, args, t), true).catch(() => ({ route: null }))
+  const next = forSkill(t, pick, config)
+  if (!next) return
+  const plans = await forPlans($)
+  await update($, task, () => next.task)
+  await update($, blind, () => false)
+  const moves = (await forPlans($)) !== plans
+  await settle($, next.route, !!next.route.model || moves)
+  await publish($)
+  // A model asked for the build takes over now; else, off the plan model of the setting, its line says so.
+  await wantModel($, next.route, { plan: false, build: true })
+  await planSwitch($, plans)
+  const line = told
+  told = null
+  toldOn = null
+  await applyNow($, 'for carrying out the plan', line, await testLine($))
+}
+
 /** Plan mode on the band: its effort, and the plan-mode model where its requests go on one. */
 async function planBand($: EngineInterface, name: string) {
   const alt = await altModel($, name)
@@ -1379,10 +1410,14 @@ export const register: Register = (on, options) => {
   }).catch(($, e, next) => next(e))
 
   // A skill the main loop loads comes back as a message of its own beside the tool result: new input, so the next
-  // request takes the effort asked for.
+  // request takes the effort asked for. During a plan, one that carries the plan out moves the work on to building.
   on('tool.call', { tool: 'Skill' }, async ($, e, next) => {
     const result = await next(e)
-    if (e.agentId === undefined && !result.deny && !result.isError) freshInput = true
+    if (e.agentId === undefined && !result.deny && !result.isError) {
+      freshInput = true
+      await skillLoaded($, String(e.skill ?? ''), typeof e.args === 'string' ? e.args : '')
+        .catch(err => $.ui.log(`effort-pilot: could not read the skill loaded: ${String(err)}`))
+    }
     return result
   }).catch(($, e, next) => next(e))
 

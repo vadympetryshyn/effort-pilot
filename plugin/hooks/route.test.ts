@@ -133,6 +133,48 @@ describe('carry', () => {
   })
 })
 
+describe('a message that says the work fell short, read as talk', () => {
+  const faulted = (phase: 'chat' | 'trivial' = 'chat', extra: Partial<Route> = {}) => route(phase, 'low', { faulted: true, ...extra })
+  test('with no work under way, it is a fix at the hard-build effort', () => {
+    const r = carry(null, faulted(), 'what is this? it posts the same text five times')
+    expect(r.route).toEqual(expect.objectContaining({ phase: 'fix', hard: true, effort: 'high' }))
+    expect(r.route.why).toContain('it fell short')
+    expect(r.task).toEqual(expect.objectContaining({ phase: 'fix', hard: true, effort: 'high' }))
+    expect(carry(null, faulted('trivial'), 'still broken').route.effort).toBe('high')
+  })
+  test('after a side question or a closing word, the same', () => {
+    for (const continues of [false, true]) {
+      const r = carry(task('chat', 'low'), faulted('chat', { continues }), 'why did it buy from the wrong country again?')
+      expect(r.route).toEqual(expect.objectContaining({ phase: 'fix', hard: true, effort: 'high' }))
+      expect(r.task.phase).toBe('fix')
+    }
+    expect(carry(task('trivial', 'low'), faulted(), 'did you even test it?').route.effort).toBe('high')
+  })
+  test('the hard-build effort is the one the settings name', () => {
+    expect(carry(null, faulted(), 'did you even test it?', configFrom({ hardBuildEffort: 'xhigh' })).route.effort).toBe('xhigh')
+  })
+  test('under a build, it keeps the build\'s effort', () => {
+    const r = carry(task('implement', 'medium'), faulted('chat', { continues: true }), 'I did not ask you to change the header')
+    expect(r.route).toEqual(expect.objectContaining({ phase: 'implement', effort: 'medium', kept: true }))
+    expect(r.task.phase).toBe('implement')
+  })
+  test('under an analysis or a plan, it keeps that work\'s effort', () => {
+    for (const phase of ['analyze', 'plan'] as const) {
+      const r = carry(task(phase, 'high'), faulted('chat', { continues: true }), 'that is not it, is it?')
+      expect(r.route).toEqual(expect.objectContaining({ phase, effort: 'high', kept: true }))
+      expect(r.task.phase).toBe(phase)
+    }
+  })
+  test('a question that does not say so stays at the talk effort', () => {
+    const r = carry(null, route('chat', 'low'), 'what does this function do?')
+    expect(r.route).toEqual(expect.objectContaining({ phase: 'chat', effort: 'low' }))
+    expect(r.task.phase).toBe('chat')
+  })
+  test('an effort the person names stands', () => {
+    expect(carry(null, faulted('chat', { asked: 'max', effort: 'max' }), 'this is wrong, look again at max').route).toEqual(expect.objectContaining({ phase: 'chat', effort: 'max' }))
+  })
+})
+
 describe('an effort the person asks for', () => {
   test('it stands over the rule', () => {
     const pick = parse('{"phase":"implement","hard":false,"continues":false,"asked":"high","build":"none","why":"add a button"}')!

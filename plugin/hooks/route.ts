@@ -315,12 +315,22 @@ export function unasked(task: Task, config: Config = DEFAULTS): Task {
  * - a word to go on ("done", "ok", "continue": trivial) keeps the work's effort, a build's as a plan's: the agent goes on
  *   with that work;
  * - a side question or a closing word takes its own effort and leaves the work under way in place;
- * - a new task, or one that needs more, takes its own effort.
+ * - a new task, or one that needs more, takes its own effort;
+ * - a message that says the work fell short but reads as talk (chat, trivial), with no build or thinking work under way
+ *   (a first turn, after a side question), is a fix at the hard-build effort: the agent must find what went wrong.
  * A test stage (the model and effort for testing or review of the built work) belongs to the work: a follow-up may add
  * it, building a plan or what an analysis worked out keeps it, and a new task drops it.
  */
 export function carry(task: Task | null, pick: Route, text: string, config: Config = DEFAULTS): { route: Route; task: Task } {
   const fresh: Task = { phase: pick.phase, hard: pick.hard, effort: pick.effort, text, asked: pick.asked, build: pick.build, ...(pick.buildModel ? { buildModel: pick.buildModel } : {}), ...testStage(pick) }
+  // A message that says the work fell short, read as talk, where no build or thinking work is under way to redo (a
+  // first turn, after a side question): the agent must find what went wrong and fix it, never at the talk effort. An
+  // effort the person names stands.
+  if (pick.faulted && !pick.asked && TALK.includes(pick.phase) && (!task || TALK.includes(task.phase))) {
+    const effort = effortFor('fix', true, false, config)
+    const route: Route = { ...pick, phase: 'fix', hard: true, effort, why: `${pick.why} (it fell short: fixing)` }
+    return { route, task: { ...fresh, phase: 'fix', hard: true, effort } }
+  }
   if (!task) return { route: pick, task: fresh }
   if (pick.release) task = unasked(task, config)
   // The person names the effort: it stands, and the work under way keeps it.
@@ -394,6 +404,26 @@ export function afterPlan(plan: string, planning: Task | null = null, config: Co
     route: { phase: 'implement', hard: false, effort, continues: true, why, ...(asked ? { asked } : {}), ...(model ? { model } : {}) },
     task: { phase: 'implement', hard: false, effort, text: plan.slice(0, 600), ...(asked ? { asked } : {}), ...testStage(null, planning) },
   }
+}
+
+const SKILL_LINE = 'This is not from the person: the agent itself loads a skill (its name and arguments below) while it works on the plan under way, which the person\'s message above began. Classify only what this skill makes the agent do next, judged first by the skill\'s name, and not what the person\'s message asks for overall. The rule that plan needs the person\'s explicit ask does not apply here. plan: the skill creates, writes, drafts, reviews, critiques or revises a plan (a name like create-plan, write-plan, review-plan, brainstorming; reviewing an implementation plan is still plan). implement: the skill carries out, executes or implements a plan or a step of it (a name like implement-plan, execute-plan, executing-plans: the word plan in it does not make it plan), or builds anything (writes code or tests, test-driven development, a migration, a deploy). analyze: it researches or judges something the plan needs. chat: it only looks something up. continues: true. asked, build, model and the rest: none.'
+
+/** The agent loads a skill while a plan is the work under way: classify what it does next with it. */
+export function skillPrompt(name: string, args: string, task: Task | null) {
+  return [
+    task ? `The work under way (${task.phase}) began with the person's message:\n"""\n${task.text.slice(0, 600)}\n"""` : 'No work under way yet (first turn).',
+    SKILL_LINE,
+    `The skill the agent loads: ${name}${args ? `\nIts arguments:\n"""\n${args.slice(0, 1500)}\n"""` : ' (no arguments)'}`,
+    'Do not answer the message: classify it. Reply with the JSON object only.',
+  ].join('\n\n')
+}
+
+/** A skill the agent loads while a plan is the work under way: carrying the plan out is what an approved plan sets; anything else changes nothing. */
+export function forSkill(task: Task | null, pick: Route | null, config: Config = DEFAULTS): { route: Route; task: Task } | null {
+  if (task?.phase !== 'plan' || !pick || !BUILD.includes(pick.phase)) return null
+  const next = afterPlan(task.text, task, config)
+  const how = task.build || task.buildModel ? 'as you asked' : next.route.effort
+  return { ...next, route: { ...next.route, why: `${pick.why} (carrying out the plan: ${how})` } }
 }
 
 /**
