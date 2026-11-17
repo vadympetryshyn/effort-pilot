@@ -2,6 +2,12 @@
 
 All notable changes. Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions: [SemVer](https://semver.org/).
 
+## [1.16.0] — 2026-11-17
+
+- A session that runs an older Effort Pilot than the one installed now says so. After `claude plugin update`, a session already open keeps the code it loaded until `/reload-plugins`, and nothing told you: a fix you had installed did not reach the session you were working in. On your next message (checked at most once every five minutes) a toast reads "Effort Pilot 1.16.0 is installed; this session still runs 1.15.0. Type /reload-plugins to use it.", once per newer version. It reads Claude Code's own install record; nothing shows for a plugin loaded with `--plugin-dir`, in headless runs, or when the record is missing or unreadable.
+- Notices meant for you now show on screen. The line about a test stage read from your message, the line about the model a plan will be built on, and the shadow-mode line were written as transcript notes, which the default view does not draw (only the verbose view, or ctrl+o, showed them). Each now also shows as a toast; the transcript notes stay.
+- "Run it again" is read as an order to act. A message such as "Run it again, the provider asked for a verification and I was away" could read as a remark and run at `low`, while the agent had to find what to restart and how. "run it again" now sits with the other orders (start it, test it now, deploy…) that go as a build or a fix. Checked on the labelled message set before and after: no field got worse.
+
 ## [1.15.0] — 2026-11-17
 
 - A message that says the work went wrong, asked only as questions, now runs as a fix. A session that opens with "What is this? It posts the same text five times. Did you even test it?", or such a question right after a side question, could read as a plain question and run at `low`, while the agent had to dig through logs and code to find what broke. When the classifier reads that the work fell short but sees only a question, and no build, plan or analysis is under way to redo, the turn now goes as a fix at the hard-build effort (`high` by default). Under a build, a plan or an analysis it keeps that work's effort, as before. An effort you name still wins, and a question that does not say anything went wrong still goes at `low`. The classifier is unchanged.
