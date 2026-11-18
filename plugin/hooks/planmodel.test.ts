@@ -390,3 +390,144 @@ describe('the plan-mode model for plans outside plan mode', () => {
     expect(built).toEqual(expect.objectContaining({ phase: 'implement', model: SESSION }))
   })
 })
+
+// The session's own model is the plan-mode model (a /model choice): no switch is made for the plan or the build, so the
+// build stays on it. Said once a conversation, so a person who expected the build on another model knows why.
+describe('a session on the plan-mode model', () => {
+  const OWN = { planModeModel: SESSION }
+  const OWN_PLANS = { planModeModel: SESSION, planModelForPlans: true }
+  const reply = (phase: string, more: string, why: string) => `{"phase":"${phase}","hard":false,"asked":"none","build":"none","faulted":false,${more}"why":"${why}"}`
+  const GO = reply('implement', '"continues":true,', 'carry out the plan')
+  const GO_SONNET = reply('implement', '"continues":true,"model":"sonnet",', 'carry out the plan on another model')
+  const LINE = (level: string) => `Effort Pilot: building on the session's model (${SESSION}) at ${level}; it is also the plan-mode model, so the build stays on it (/model fable to build on fable).`
+  const TOAST = `Effort Pilot: building on ${SESSION}, your /model choice (also the plan-mode model)`
+  const said = (seen: { toasts: string[] }) => seen.toasts.filter(t => t.includes('your /model choice'))
+  const say = ($: Engine, text: string) => turn($, text, 'default')
+
+  test('an approved plan builds on it at the build effort, switches no model, and says so once', { options: OWN }, async ($, on) => {
+    const seen = engine(on, PLAN)
+    const id = await planning($)
+    await exit($)
+    await step($, id, 1)
+    expect(seen.models).toEqual([SESSION, SESSION])
+    expect(seen.sent).toEqual(['high', 'medium'])
+    expect(seen.added).toEqual([LINE('medium')])
+    expect(said(seen)).toEqual([TOAST])
+    expect(seen.toasts.filter(t => t.includes('back on') || t.includes('planning on'))).toEqual([])
+    expect(seen.status.at(-1)).toBe('effort: med implement')
+  })
+
+  test('a second plan and build in the same conversation says nothing again', { options: OWN }, async ($, on) => {
+    const seen = engine(on, PLAN)
+    const a = await planning($)
+    await exit($)
+    await step($, a, 1)
+    await complete($, a)
+    const b = await planning($)
+    await exit($)
+    await step($, b, 1)
+    expect(seen.models).toEqual([SESSION, SESSION, SESSION, SESSION])
+    expect(seen.sent).toEqual(['high', 'medium', 'high', 'medium'])
+    expect(said(seen)).toEqual([TOAST])
+    expect(seen.added).toEqual([LINE('medium'), 'Effort Pilot: reasoning effort is now medium, for carrying out the approved plan.'])
+  })
+
+  test('leaving plan mode by Shift+Tab to build says so with the build\'s prompt', { options: OWN }, async ($, on) => {
+    const seen = engine(on, [PLAN, GO])
+    const id = await planning($)
+    await complete($, id)
+    await building($)
+    expect(seen.models).toEqual([SESSION, SESSION])
+    expect(seen.sent).toEqual(['high', 'medium'])
+    expect(seen.added).toEqual([LINE('medium')])
+    expect(said(seen)).toEqual([TOAST])
+  })
+
+  test('with plans outside plan mode on it too, building a plan says so once; a later build does not', { options: OWN_PLANS }, async ($, on) => {
+    const seen = engine(on, [PLAN, GO, PLAN, GO])
+    for (const text of ['Plan a CSV export for the reports page.', 'Looks good, build it.', 'Plan a PDF export too.', 'Build that one as well.']) {
+      await complete($, await say($, text))
+    }
+    expect(seen.models).toEqual([SESSION, SESSION, SESSION, SESSION])
+    expect(seen.sent).toEqual(['high', 'medium', 'high', 'medium'])
+    expect(seen.context.join('\n')).toContain(`A note from the Effort Pilot plugin; nothing to do for it now. ${LINE('medium')}`)
+    expect(seen.added).toEqual([LINE('medium')])
+    expect(said(seen)).toEqual([TOAST])
+    expect(seen.toasts.filter(t => t.includes('back on') || t.includes('planning on'))).toEqual([])
+  })
+
+  test('a new build task typed while the plan\'s turn runs says so with the next tool result', { options: OWN_PLANS }, async ($, on) => {
+    const seen = engine(on, [PLAN, reply('implement', '"continues":false,', 'an unrelated change')])
+    const id = await say($, 'Plan a CSV export for the reports page.')
+    await $.prompt.submit({ text: 'Rename the save button to Store.', origin: { kind: 'composer' }, turnId: id } as never)
+    await step($, id, 1)
+    expect(seen.models).toEqual([SESSION, SESSION])
+    // A message typed mid-turn never lowers the running turn's effort.
+    expect(seen.added).toEqual([LINE('high')])
+    expect(said(seen)).toEqual([TOAST])
+  })
+
+  test('with plans outside plan mode left to the session, a plan read from a message and built says nothing', { options: OWN }, async ($, on) => {
+    const seen = engine(on, [PLAN, GO])
+    await complete($, await say($, 'Plan a CSV export for the reports page.'))
+    await say($, 'Looks good, build it.')
+    expect(seen.added).toEqual([])
+    expect(said(seen)).toEqual([])
+  })
+
+  test('with the only other model the pilot steers of the same family, the line names no model to switch to', { options: { planModeModel: SESSION, managedModels: 'opus' } }, async ($, on) => {
+    const seen = engine(on, PLAN)
+    const id = await planning($)
+    await exit($)
+    expect(seen.added).toEqual([LINE('medium').replace('/model fable to build on fable', '/model to build on another')])
+  })
+
+  test('a model asked for the build in words takes over, and nothing is said of the session\'s', { options: OWN_PLANS }, async ($, on) => {
+    // A model named is read twice.
+    const seen = engine(on, [PLAN, GO_SONNET, GO_SONNET])
+    await complete($, await say($, 'Plan a CSV export for the reports page.'))
+    await say($, 'Looks good, build it on Sonnet.')
+    expect(seen.models).toEqual([SESSION, 'sonnet'])
+    expect(said(seen)).toEqual([])
+  })
+
+  test('with the pilot off, in shadow mode or paused by /effort, nothing is said', { options: OWN }, async ($, on) => {
+    const seen = engine(on, PLAN)
+    for (const how of [() => run($, 'off'), () => run($, 'shadow'), () => $.command.run({ command: 'effort', args: 'max', origin: { kind: 'composer' }, presentation: { isFullscreen: false, columns: 80 } })]) {
+      await run($, 'on')
+      await how()
+      const id = await planning($)
+      await exit($)
+      await step($, id, 1)
+      await complete($, id)
+    }
+    expect(said(seen)).toEqual([])
+    expect(seen.added.filter(t => t.includes('plan-mode model'))).toEqual([])
+  })
+
+  test('a headless session run as an agent says nothing when its plan is carried out', { options: { ...OWN_PLANS, headless: true, sessionAgent: 'reviewer' } }, async ($, on) => {
+    const seen = engine(on, [PLAN, GO])
+    on('session.start', () => ({ cwd: '/' }))
+    await $.session.start({ cwd: '/', surface: null, isInteractive: false })
+    await $.prompt.submit({ text: 'Plan the CSV export for the reports page, then implement it.', origin: { kind: 'sdk' } } as never)
+    await $.turn.start({ text: 'brief', turnId: 'h1' })
+    await step($, 'h1', 0)
+    await $.tool.call({ tool: 'Skill', skill: 'tools:implement-plan', args: 'docs/plans/csv-export.md', tool_use_id: 'sk1' } as never)
+    await step($, 'h1', 1)
+    expect(seen.sent).toEqual(['high', 'medium'])
+    expect(said(seen)).toEqual([])
+    expect(seen.added.filter(t => t.includes('plan-mode model'))).toEqual([])
+  })
+})
+
+describe('a session on another model than the plan-mode model', () => {
+  test('an approved plan goes back on the session\'s model, and nothing says the build stays', { options: { planModeModel: FABLE } }, async ($, on) => {
+    const seen = engine(on, PLAN)
+    const id = await planning($)
+    await exit($)
+    await step($, id, 1)
+    expect(seen.models).toEqual([FABLE, SESSION])
+    expect(seen.added).toEqual([`Effort Pilot: reasoning effort is now medium, back on the session's model (${SESSION}), for carrying out the approved plan.`])
+    expect(seen.toasts.filter(t => t.includes('your /model choice'))).toEqual([])
+  })
+})

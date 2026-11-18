@@ -3,7 +3,7 @@ import type { EngineInterface, Register, TurnStepResult } from 'claude-code'
 
 import type { AgentRun, Config, Effort, Mode, Route, Spend, Tally, Task, TurnRecord, Who } from '../types'
 import {
-  afterPlan, agreed, asideText, isModel, briefPrompt, cacheRewritten, commandText, unasked, carry, configFrom, DEFAULTS, EFFORTS, flagOn, forAgent, forNotice, forSkill, fromBrief, listedAgent, managed as managedBy, versionOf,
+  afterPlan, agreed, asideText, isModel, briefPrompt, cacheRewritten, commandText, unasked, carry, configFrom, DEFAULTS, EFFORTS, flagOn, forAgent, forNotice, forSkill, fromBrief, listedAgent, managed as managedBy, modelId, versionOf,
   midTurn, noticeOf, parse, parseRecords, prompt, promptOf, recentOf, report, reportData, sameModel, seedPrompt, SHORT, shortModel, skillPrompt, modelsSplit, SYSTEM, testStage, wholeRequest,
 } from './route'
 import type { Aside, Step } from './route'
@@ -121,10 +121,11 @@ async function forPlans($: EngineInterface) {
  * planForPlans setting (before: the one it was on), the line says so, like plan mode's switch, for the model and the
  * person. Nothing where a model the person named takes over: its own line says where the requests go.
  */
-async function planSwitch($: EngineInterface, before: string | undefined) {
+async function planSwitch($: EngineInterface, before: string | undefined, fromPlan = false) {
   const t = await read($, task)
   if (t?.phase === 'plan' && t.text !== (await read($, planText))) await update($, planText, () => t.text)
   const now = await forPlans($)
+  if (fromPlan && !now) await ownBuild($)
   if (now === before || toldOn) return
   const name = await read($, model)
   const alt = await altModel($, name)
@@ -140,6 +141,40 @@ async function planSwitch($: EngineInterface, before: string | undefined) {
   $.ui.toast(now ? `Effort Pilot: planning on ${now} at ${level}` : `Effort Pilot: back on ${name} at ${level}${build ? ' for the build' : ''}`)
   const r = await read($, route)
   if (r) $.ui.status(await statusOf($, r))
+}
+/** The work under way is a plan the plan-mode model is set for: plan mode's, or (planForPlans) one read outside it. */
+async function planBound($: EngineInterface) {
+  return (await read($, planMode)) || (config.planForPlans && (await planWork($)))
+}
+// Whether this conversation was told that its build stays on the session's model, which is also the plan-mode model.
+const ownTold = atom({ plugin: 'effort-pilot', key: 'ownBuild' } as const, false)
+/**
+ * Building starts after a plan the plan-mode model is set for, in a session whose own model (the person's /model choice)
+ * is that model: no switch is made, as none was for the plan, so the build stays on it. Said once a conversation, so a
+ * person who expected the build on another model knows why. Not where a model the person asked for takes over, nor
+ * where the pilot does not steer the session (off, shadow, /effort, a headless agent session).
+ */
+async function ownBuild($: EngineInterface) {
+  if (!config.planModel || (await read($, ownTold))) return
+  if ((await read($, mode)) !== 'auto' || (await read($, pin)) !== null) return
+  const w = await read($, who)
+  if (w === null || w === 'agent') return
+  const t = await read($, task)
+  if (t?.phase !== 'implement' && t?.phase !== 'fix') return
+  const name = await read($, model)
+  if (!managed(name) || !isModel(config.planModel, name) || (await altModel($, name))) return
+  await update($, ownTold, () => true)
+  const level = (await aim($, name, true)) ?? 'your own effort'
+  const other = otherFamily(config.planModel)
+  const how = other ? `/model ${other} to build on ${other}` : '/model to build on another'
+  const line = `Effort Pilot: building on the session's model (${name}) at ${level}; it is also the plan-mode model, so the build stays on it (${how}).`
+  told = told ? `${told} ${line}` : line
+  $.ui.toast(`Effort Pilot: building on ${name}, your /model choice (also the plan-mode model)`)
+}
+/** The first model the pilot steers of another family than this one, as /model takes it; undefined where none. */
+function otherFamily(of: string) {
+  const family = (m: string) => versionOf(m)?.family ?? m.trim().toLowerCase()
+  return config.models.map(modelId).find((m): m is string => !!m && family(m) !== family(of))
 }
 /** A model the main loop's requests go on instead of the session's, and why: asked in words, asked for the plan, the setting. */
 type Alt = { model: string; source: 'asked' | 'plan' | 'setting' }
@@ -246,7 +281,7 @@ async function setPlan($: EngineInterface, isPlan: boolean) {
  * handBack: the engine marked the notification meta (a subagent's hand-back), the result of a finished task. pre: a
  * queued message's read as it was submitted (heard): its pick is taken, and a switch it made is not made again.
  */
-async function begin($: EngineInterface, text: string, kind: string, handBack = false, pre: Early | null = null) {
+async function begin($: EngineInterface, text: string, kind: string, handBack = false, pre: Early | null = null, left = false) {
   planBegun = null
   const notice = NOTICE.has(kind)
   await update($, blind, () => false)
@@ -285,6 +320,8 @@ async function begin($: EngineInterface, text: string, kind: string, handBack = 
   if (!notice) await seed($, text).catch(err => $.ui.log(`effort-pilot: could not read the session so far: ${String(err)}`))
   const work = await read($, task)
   const plans = await forPlans($)
+  // The plan this message may move on from: plan mode's (left by Shift+Tab before it), or one read outside it.
+  const fromPlan = (left && work?.phase === 'plan') || (await planBound($))
   const pick = pre ? pre.pick : await classify($, text, true, notice).catch(() => null)
   const share0 = share()
   const carried = pick && !notice ? carry(work, pick, text, config) : null
@@ -312,7 +349,7 @@ async function begin($: EngineInterface, text: string, kind: string, handBack = 
     const build = work?.phase === 'plan' && (r.phase === 'implement' || r.phase === 'fix') && !pick.model
     await wantModel($, r, { plan: r.phase === 'plan', build })
     await buildNote($)
-    await planSwitch($, plans)
+    await planSwitch($, plans, fromPlan)
   }
 }
 
@@ -787,6 +824,7 @@ async function delivered($: EngineInterface, kind: string, text: string, pre: Ea
   const took = pick ? midTurn(await read($, task), await read($, route), pick, text, config) : null
   if (!took) return
   const plans = await forPlans($)
+  const fromPlan = await planBound($)
   if (took.route?.asked) await update($, arm, () => 'auto' as const)
   await update($, task, () => took.task)
   // A test stage typed mid-turn for a build under way: its line goes with the next tool result.
@@ -802,6 +840,11 @@ async function delivered($: EngineInterface, kind: string, text: string, pre: Ea
   if (moves) {
     await publish($)
     await planSwitch($, plans)
+    midTold()
+    await tell($)
+  } else if (fromPlan) {
+    // Building starts on the session's model, which is also the plan model: no move, but a line once.
+    await ownBuild($)
     midTold()
     await tell($)
   }
@@ -941,6 +984,7 @@ async function approved($: EngineInterface, plan: string): Promise<string | null
   await settle($, next.route, !!next.route.model)
   // A model asked for the build takes over now; the line that says so is the one added after the approval.
   await wantModel($, next.route, { plan: false, build: true })
+  await ownBuild($)
   const line = told
   told = null
   toldOn = null
@@ -964,6 +1008,7 @@ async function skillLoaded($: EngineInterface, name: string, args: string) {
   const next = forSkill(t, pick, config)
   if (!next) return
   const plans = await forPlans($)
+  const fromPlan = await planBound($)
   await update($, task, () => next.task)
   await update($, blind, () => false)
   const moves = (await forPlans($)) !== plans
@@ -971,7 +1016,7 @@ async function skillLoaded($: EngineInterface, name: string, args: string) {
   await publish($)
   // A model asked for the build takes over now; else, off the plan model of the setting, its line says so.
   await wantModel($, next.route, { plan: false, build: true })
-  await planSwitch($, plans)
+  await planSwitch($, plans, fromPlan)
   const line = told
   told = null
   toldOn = null
@@ -1383,7 +1428,7 @@ export const register: Register = (on, options) => {
     await setPlan($, plan)
     let extra: string | null = null
     if (again) {
-      await begin($, again.text, again.kind, again.handBack).catch(err => $.ui.log(`effort-pilot: could not route the prompt out of plan mode: ${String(err)}`))
+      await begin($, again.text, again.kind, again.handBack, null, true).catch(err => $.ui.log(`effort-pilot: could not route the prompt out of plan mode: ${String(err)}`))
       // A switch the prompt asks for out of plan mode goes with it now, not stale with the next prompt.
       extra = (await lines($)).join('\n\n') || null
     }

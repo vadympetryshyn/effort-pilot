@@ -2,6 +2,10 @@
 
 All notable changes. Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions: [SemVer](https://semver.org/).
 
+## [1.17.0] — 2026-11-18
+
+- A build on the session's own model, when that model is also the plan-mode model, now says so. With `planModeModel` set to, say, Fable, and the session itself on Fable (a `/model fable` choice, which Claude Code keeps for new sessions), Effort Pilot rightly switches no model: plan mode already runs on Fable. But once the plan was approved, or you left plan mode and said build it (or, with `planModelForPlans` on, built a plan asked for outside plan mode), the build went on Fable too, with no word, where you may have expected "plan on Fable, build on Opus". Now, the first time a build follows a plan in a conversation, a toast reads "building on claude-fable-5-2, your /model choice (also the plan-mode model)", and the agent and the transcript get a line naming the build effort and the `/model` that builds on another model (the first other family Effort Pilot steers, e.g. `/model opus`). The model is still never switched: your `/model` choice stands. Nothing is said when a model you named for the build takes over, with the pilot off, in shadow mode, paused by `/effort`, or in a headless session run as an agent.
+
 ## [1.16.0] — 2026-11-17
 
 - A session that runs an older Effort Pilot than the one installed now says so. After `claude plugin update`, a session already open keeps the code it loaded until `/reload-plugins`, and nothing told you: a fix you had installed did not reach the session you were working in. On your next message (checked at most once every five minutes) a toast reads "Effort Pilot 1.16.0 is installed; this session still runs 1.15.0. Type /reload-plugins to use it.", once per newer version. It reads Claude Code's own install record; nothing shows for a plugin loaded with `--plugin-dir`, in headless runs, or when the record is missing or unreadable.

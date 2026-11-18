@@ -214,6 +214,8 @@ declare module 'claude-code' {
       planMode: boolean
       /** The text of the last plan the work under way was: a follow-up reasoning about it is still that plan's work. */
       planText: string
+      /** This conversation was told its build stays on the session's model, which is also the plan-mode model. */
+      ownBuild: boolean
       task: Shaped<Task | null>
       /** What the next request goes at, for other plugins to show: null when the pilot is not setting it. Its shape (effective-1) is read by other plugins: keep it. */
       effective: Shaped<{ effort: Effort; source: 'auto' | 'pinned' } | null>
