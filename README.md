@@ -2,7 +2,7 @@
 
 ### The right reasoning effort for every turn in <img src="assets/claude-inline.svg" height="30" alt=""> Claude Code, set for you.
 
-Effort Pilot switches the reasoning effort for every turn, automatically: plans get `high`, building gets `medium`, questions and trivial tasks — a git commit, a push, a rename — get `low`. Deep thinking goes where it counts, and a quick question no longer waits on it. Want another model or level? Just say it, typed or dictated: "plan this on Fable 5.2 at high, then build on Opus at medium".
+Effort Pilot switches the reasoning effort for every turn, automatically: plans get `high`, building gets `medium`, questions and trivial tasks get `low`, and an order that can't be taken back — a push, a merge, a deploy — gets `high`. Deep thinking goes where it counts, and a quick question no longer waits on it. Want another model or level? Just say it, typed or dictated: "plan this on Fable 5.2 at high, then build on Opus at medium".
 
 [![version](https://img.shields.io/github/v/release/vadympetryshyn/effort-pilot?label=version&color=d97757)](https://github.com/vadympetryshyn/effort-pilot/releases)
 [![CI](https://github.com/vadympetryshyn/effort-pilot/actions/workflows/ci.yml/badge.svg)](https://github.com/vadympetryshyn/effort-pilot/actions/workflows/ci.yml)
@@ -10,13 +10,13 @@ Effort Pilot switches the reasoning effort for every turn, automatically: plans 
 [![stars](https://img.shields.io/github/stars/vadympetryshyn/effort-pilot?style=flat&color=d97757)](https://github.com/vadympetryshyn/effort-pilot/stargazers)
 [![last commit](https://img.shields.io/github/last-commit/vadympetryshyn/effort-pilot)](https://github.com/vadympetryshyn/effort-pilot/commits/main)
 
-<img src="assets/hero-5.svg" alt="Effort Pilot switching effort: high to plan and to investigate, medium to build, low to commit and push" width="820">
+<img src="assets/hero-6.svg" alt="Effort Pilot switching effort: high to plan and to investigate, medium to build, low for a question about the work" width="820">
 
 ## What you get
 
 Compared with leaving effort on `high` all the time, on the author's own turns:
 
-<img src="assets/why-4.svg" alt="Effort Pilot vs. always-on high: quick questions answered up to twice as fast, up to 10% fewer tokens, effort set every turn without /effort" width="820">
+<img src="assets/why-5.svg" alt="Effort Pilot vs. always-on high: quick questions answered up to twice as fast, up to 10% fewer tokens, effort set every turn without /effort" width="820">
 
 - **Quick answers, up to twice as fast.** A question or a chat turn runs at `low`: its median model time is about half that at `high` (−50%, 90% range −13% … −69%).
 - **Plans lose nothing.** Plans and plan mode run at `high`, the same depth as always-on `high`; set `planEffort` to `xhigh` or `max` for more.
@@ -67,7 +67,9 @@ Before each turn a small, fast model (Haiku, ≈ $0.0004 a turn) reads your mess
 | ask a hard question, investigate a bug | analyze | `high` |
 | ask to build or fix something | implement / fix | `medium` (`high` when hard) |
 | approve a plan | implement | `medium` — the thinking went into the plan |
-| ask a quick question, commit, push, run a command, a tiny edit | chat / trivial | `low` |
+| ask to commit, run a command or the tests | implement | `medium` |
+| ask to push, merge, deploy or delete | implement | `high` — it can't be taken back |
+| ask a quick question, or a question about the work | chat / trivial | `low` |
 
 A band above the prompt shows the effort now, how it got there and why. Follow-ups that push the work on keep its effort (a word to go on, like "done" or "continue", too), and a side question doesn't drag it down; a plain question about the work (what was found, where it stands) runs at `low` — the answer is already there. A skill or prompt command you type (`/create-plan …`) is read like any message, and with nothing after it by what the command says it does; built-in commands (`/clear`, `/model`) are left alone. Asked for a plan and its build in one message ("plan it, then implement")? Once the agent loads a skill that carries the plan out, the build goes at the build effort, as an approved plan does.
 
