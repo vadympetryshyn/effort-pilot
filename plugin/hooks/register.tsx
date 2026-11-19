@@ -125,7 +125,8 @@ async function planSwitch($: EngineInterface, before: string | undefined, fromPl
   const t = await read($, task)
   if (t?.phase === 'plan' && t.text !== (await read($, planText))) await update($, planText, () => t.text)
   const now = await forPlans($)
-  if (fromPlan && !now) await ownBuild($)
+  // Building on the session's model (the person's /model choice) where they may expect another: a line once.
+  if (!now) await ownBuild($, fromPlan)
   if (now === before || toldOn) return
   const name = await read($, model)
   const alt = await altModel($, name)
@@ -146,34 +147,49 @@ async function planSwitch($: EngineInterface, before: string | undefined, fromPl
 async function planBound($: EngineInterface) {
   return (await read($, planMode)) || (config.planForPlans && (await planWork($)))
 }
-// Whether this conversation was told that its build stays on the session's model, which is also the plan-mode model.
+// Whether this conversation was told that its build stays on the session's model (the person's /model choice).
 const ownTold = atom({ plugin: 'effort-pilot', key: 'ownBuild' } as const, false)
 /**
- * Building starts after a plan the plan-mode model is set for, in a session whose own model (the person's /model choice)
- * is that model: no switch is made, as none was for the plan, so the build stays on it. Said once a conversation, so a
- * person who expected the build on another model knows why. Not where a model the person asked for takes over, nor
- * where the pilot does not steer the session (off, shadow, /effort, a headless agent session).
+ * Building starts on the session's own model (the person's /model choice), which the pilot never switches, where the
+ * person may expect it elsewhere: after a plan the plan-mode model is set for, in a session already on that model
+ * (fromPlan), or on any build where the session's model is of another family than the default build model (the first
+ * model the pilot steers). Said once a conversation, so a person who expected the build on another model knows why.
+ * Not where a model the person asked for takes over, nor where the pilot does not steer the session (off, shadow,
+ * /effort, a headless agent session).
  */
-async function ownBuild($: EngineInterface) {
-  if (!config.planModel || (await read($, ownTold))) return
+async function ownBuild($: EngineInterface, fromPlan = false) {
+  if (await read($, ownTold)) return
   if ((await read($, mode)) !== 'auto' || (await read($, pin)) !== null) return
   const w = await read($, who)
-  if (w === null || w === 'agent') return
+  // A headless session run as an agent: its later inputs are routed as anyone's, but no person reads the line.
+  if (w === null || w === 'agent' || sessionAgent()) return
   const t = await read($, task)
   if (t?.phase !== 'implement' && t?.phase !== 'fix') return
   const name = await read($, model)
-  if (!managed(name) || !isModel(config.planModel, name) || (await altModel($, name))) return
+  if (!managed(name) || (await altModel($, name))) return
+  const plan = fromPlan && !!config.planModel && isModel(config.planModel, name)
+  const usual = buildDefault()
+  if (!plan && (!usual || family(usual) === family(name))) return
   await update($, ownTold, () => true)
   const level = (await aim($, name, true)) ?? 'your own effort'
-  const other = otherFamily(config.planModel)
-  const how = other ? `/model ${other} to build on ${other}` : '/model to build on another'
-  const line = `Effort Pilot: building on the session's model (${name}) at ${level}; it is also the plan-mode model, so the build stays on it (${how}).`
+  if (plan) {
+    const other = otherFamily(config.planModel)
+    const how = other ? `/model ${other} to build on ${other}` : '/model to build on another'
+    const line = `Effort Pilot: building on the session's model (${name}) at ${level}; it is also the plan-mode model, so the build stays on it (${how}).`
+    told = told ? `${told} ${line}` : line
+    $.ui.toast(`Effort Pilot: building on ${name}, your /model choice (also the plan-mode model)`)
+    return
+  }
+  const line = `Effort Pilot: building on the session's model (${name}) at ${level}, your /model choice, which the pilot never switches; /model ${usual} builds on ${usual}, or name a model for the build in your message.`
   told = told ? `${told} ${line}` : line
-  $.ui.toast(`Effort Pilot: building on ${name}, your /model choice (also the plan-mode model)`)
+  $.ui.toast(`Effort Pilot: building on ${name}, your /model choice`)
 }
+/** A model's family (opus, fable…): an id's, or an alias as it is. */
+const family = (m: string) => versionOf(m)?.family ?? m.trim().toLowerCase()
+/** The model a build goes on by default: the first model the pilot steers, as /model takes it; undefined where none. */
+const buildDefault = () => config.models.map(modelId).find((m): m is string => !!m)
 /** The first model the pilot steers of another family than this one, as /model takes it; undefined where none. */
 function otherFamily(of: string) {
-  const family = (m: string) => versionOf(m)?.family ?? m.trim().toLowerCase()
   return config.models.map(modelId).find((m): m is string => !!m && family(m) !== family(of))
 }
 /** A model the main loop's requests go on instead of the session's, and why: asked in words, asked for the plan, the setting. */
@@ -842,9 +858,9 @@ async function delivered($: EngineInterface, kind: string, text: string, pre: Ea
     await planSwitch($, plans)
     midTold()
     await tell($)
-  } else if (fromPlan) {
-    // Building starts on the session's model, which is also the plan model: no move, but a line once.
-    await ownBuild($)
+  } else {
+    // Building starts on the session's model (the person's /model choice): no move, but a line once.
+    await ownBuild($, fromPlan)
     midTold()
     await tell($)
   }
@@ -984,7 +1000,7 @@ async function approved($: EngineInterface, plan: string): Promise<string | null
   await settle($, next.route, !!next.route.model)
   // A model asked for the build takes over now; the line that says so is the one added after the approval.
   await wantModel($, next.route, { plan: false, build: true })
-  await ownBuild($)
+  await ownBuild($, true)
   const line = told
   told = null
   toldOn = null
