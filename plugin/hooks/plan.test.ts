@@ -19,7 +19,7 @@ type Answer = { deny: string } | { isError: true } | { approved: true }
  * A session on a managed model: what the classifier answers, what each request carried, the lines the plugin added, the
  * status lines shown and the turn records kept (in a file system in memory).
  */
-function engine(on: On, reply: string | (() => string), answer: Answer = { approved: true }) {
+function engine(on: On, reply: string | ((prompt: string) => string), answer: Answer = { approved: true }) {
   const seen = { sent: [] as unknown[], added: [] as string[], status: [] as string[], files: new Map<string, string>() }
   const records = () => [...seen.files.values()].flatMap(t => t.split('\n').filter(Boolean)).map(l => JSON.parse(l) as Record<string, unknown>)
   on('command.register', () => ({ value: { command: 'effort-pilot' } }))
@@ -27,7 +27,7 @@ function engine(on: On, reply: string | (() => string), answer: Answer = { appro
   on('session.id', () => ({ value: 's1' }))
   on('session.messages', () => ({ value: [] }))
   on('clock.now', () => ({ value: 0 }))
-  on('model.complete', () => ({ value: { isAnswered: true, text: typeof reply === 'string' ? reply : reply(), usage } }))
+  on('model.complete', (_$, e) => ({ value: { isAnswered: true, text: typeof reply === 'string' ? reply : reply(e.prompt), usage } }))
   on('prompt.submit', (_$, e) => ({ text: e.text }))
   on('ui.status', (_$, e) => {
     seen.status.push(e.text ?? '')
@@ -119,6 +119,23 @@ test('after an approved plan, a remark or a side question keeps the build effort
   await said('Fix the typo in the README title.', 't4')
   expect(seen.sent).toEqual(['high', 'medium', 'medium', 'medium', 'low'])
   expect(seen.status.at(-1)).toBe('effort: low trivial')
+})
+
+test('plan mode started with a prompt begins the plan with it: a message typed while planning is read against the plan, not the work before it', async ($, on) => {
+  const prompts: string[] = []
+  let reply = BUILD
+  engine(on, p => {
+    prompts.push(p)
+    return reply
+  })
+  await building($)
+  await complete($)
+  // Read as a follow-up of the build before it, which keeps that work's text unless plan mode takes the prompt's.
+  reply = PLAN.replace('"continues":false', '"continues":true')
+  await planning($)
+  await $.prompt.submit({ text: 'and keep the old export working', turnId: 't1', origin: { kind: 'composer' } } as never)
+  expect(prompts.at(-1)).toContain('The work under way (plan) began with the message:\n"""\nPlan a CSV export for the reports page.')
+  expect(prompts.at(-1)).not.toContain('Add an export button')
 })
 
 test('the request after an approved plan counts as gone at the build effort, not the planning one', async ($, on) => {

@@ -10,7 +10,7 @@ Effort Pilot switches the reasoning effort for every turn, automatically: plans 
 [![stars](https://img.shields.io/github/stars/vadympetryshyn/effort-pilot?style=flat&color=d97757)](https://github.com/vadympetryshyn/effort-pilot/stargazers)
 [![last commit](https://img.shields.io/github/last-commit/vadympetryshyn/effort-pilot)](https://github.com/vadympetryshyn/effort-pilot/commits/main)
 
-<img src="assets/hero-6.svg" alt="Effort Pilot switching effort: high to plan and to investigate, medium to build, low for a question about the work" width="820">
+<img src="assets/hero-6.svg" alt="Effort Pilot switching effort: high to plan and to investigate, medium to build (a question during the build too), low for a tiny task of its own" width="820">
 
 ## What you get
 

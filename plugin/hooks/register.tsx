@@ -261,9 +261,12 @@ async function shown($: EngineInterface, effort: Effort | undefined, alt: Alt | 
 }
 /**
  * Keep the engine's plan-mode fact. Plan mode is the plan effort, whole: entering it makes the work a plan (the band shows it),
- * and nothing typed while it lasts is classified. Leaving it by an approved plan is approved()'s.
+ * and nothing typed while it lasts is classified. Leaving it by an approved plan is approved()'s. prompt: the person's
+ * prompt plan mode starts with (Shift+Tab before it): the plan begins with it, so later reads in plan mode name it as
+ * the work under way. Was: the plan kept the text of the work before it, so a message typed while planning was read
+ * against that older work.
  */
-async function setPlan($: EngineInterface, isPlan: boolean) {
+async function setPlan($: EngineInterface, isPlan: boolean, prompt = '') {
   if ((await read($, planMode)) === isPlan) return
   // Leaving plan mode while its requests went on another model: the status line must say where they go now.
   const left = isPlan ? undefined : await altModel($, await read($, model))
@@ -276,7 +279,7 @@ async function setPlan($: EngineInterface, isPlan: boolean) {
     // What the turn's prompt asked for (the planning's effort, the build's) holds through the plan.
     const effort = lastPick?.asked ?? config.plan
     await update($, task, () => ({
-      phase: 'plan' as const, hard: false, effort, text: t?.text ?? '',
+      phase: 'plan' as const, hard: false, effort, text: prompt.trim() ? prompt : t?.text ?? '',
       ...(lastPick?.asked ? { asked: lastPick.asked } : {}), ...(lastPick?.build ? { build: lastPick.build } : {}),
       ...(lastPick?.buildModel ? { buildModel: lastPick.buildModel } : {}), ...testStage(lastPick, t),
     }))
@@ -1441,7 +1444,7 @@ export const register: Register = (on, options) => {
     // The person left plan mode (Shift+Tab) before this prompt, which was routed as plan mode's: route it again, now.
     const again = !plan && e.agent_id === undefined && (await read($, planMode)) ? planBegun : null
     planBegun = null
-    await setPlan($, plan)
+    await setPlan($, plan, plan && e.agent_id === undefined && typeof e.prompt === 'string' ? e.prompt : '')
     let extra: string | null = null
     if (again) {
       await begin($, again.text, again.kind, again.handBack, null, true).catch(err => $.ui.log(`effort-pilot: could not route the prompt out of plan mode: ${String(err)}`))
