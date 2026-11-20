@@ -305,16 +305,17 @@ export function unasked(task: Task, config: Config = DEFAULTS): Task {
  * The effort a message gets, given the work under way.
  * - a follow-up to unfinished work keeps that work's effort, unless it moves the work on from thinking (plan, analyze) to
  *   building, which the rule sets anew (after a plan: the build effort);
- * - a question about the work (chat) takes its own effort and leaves the work under way in place: about a build, answering
- *   it builds nothing (pushback on a build, faulted, keeps the build's effort: the agent redoes it); about a plan or
- *   an analysis, its answer is in the work so far, while one that needs new reasoning comes as analyze and one that
- *   says the work fell short as faulted, and both keep the work's effort;
+ * - during a build, an aside (chat: a question about it, a remark, a side question, pushback) keeps the build's effort:
+ *   the agent answers it in the middle of that work and goes on building; only a new task moves off it;
+ * - a question about a plan or an analysis (chat) takes its own effort and leaves the work under way in place: its
+ *   answer is in the work so far, while one that needs new reasoning comes as analyze and one that says the work fell
+ *   short as faulted, and both keep the work's effort;
  * - pushback on a plan (faulted, even when it reads as a fix or a build) redoes the plan: it stays the work under way,
  *   at the higher of its effort and the pick's, never the build effort of carrying it out; a faulted fix or build under
  *   an analysis starts that build at its own effort;
  * - a word to go on ("done", "ok", "continue": trivial) keeps the work's effort, a build's as a plan's: the agent goes on
  *   with that work;
- * - a side question or a closing word takes its own effort and leaves the work under way in place;
+ * - outside a build, a side question or a closing word takes its own effort and leaves the work under way in place;
  * - a new task, or one that needs more, takes its own effort;
  * - a message that says the work fell short but reads as talk (chat, trivial), with no build or thinking work under way
  *   (a first turn, after a side question), is a fix at the hard-build effort: the agent must find what went wrong.
@@ -343,22 +344,27 @@ export function carry(task: Task | null, pick: Route, text: string, config: Conf
   if (pick.continues && task.asked && !(THINK.includes(task.phase) && BUILD.includes(pick.phase))) {
     return { route: { ...pick, effort: task.asked, kept: true, asked: task.asked, why: `you asked for ${task.asked}` }, task }
   }
-  // A question about building (implement, fix) takes its own light effort: answering it builds nothing. Pushback on the
-  // build (faulted: "that is not what I asked") is no question: the agent undoes, redoes or fixes it, so it keeps the
-  // build's effort below, as a word to go on ("done", "continue": trivial) does.
-  if (pick.continues && pick.phase === 'chat' && !pick.faulted && BUILD.includes(task.phase)) {
-    return { route: { ...pick, why: `${pick.why} (a question about the build: its own effort)` }, task }
+  const keep = (why: string) => ({
+    route: { ...pick, phase: task.phase, hard: task.hard, effort: task.effort, kept: true, why },
+    task,
+  })
+  // An aside during a build (implement, fix) keeps the build's effort: a question about it, a remark or a "by the way"
+  // note, a side question on another subject (all read as chat). The agent answers it in the middle of that work and
+  // goes on building in the same turn, where the talk effort would carry the build on shallow. The turn stays chat (a
+  // side turn: no test-stage reminder), the build stays the work under way. Only a new task moves off it: a tiny request
+  // of its own (trivial, not about the work), or another phase below. Pushback (faulted) redoes the build: kept below.
+  // Was: since 1.0 (and 1.3.1) a question about the build, or a side question, took the talk effort, since answering it
+  // builds nothing; a remark that adds to the build, often read as chat, then ran the build at low.
+  if (BUILD.includes(task.phase) && pick.phase === 'chat' && !pick.faulted) {
+    const why = `${pick.why} (${pick.continues ? 'about' : 'an aside during'} the ${task.phase}: keeps ${task.effort})`
+    return { route: { ...pick, effort: task.effort, kept: true, why }, task }
   }
-  // A question about thinking work (plan, analyze) takes its own effort too: its answer is already in that work. A
+  // A question about thinking work (plan, analyze) takes its own effort: its answer is already in that work. A
   // follow-up that needs new reasoning comes as analyze, pushback on the work as faulted, and a word to go on
   // ("continue") as trivial: those keep the work's effort below.
   if (pick.continues && pick.phase === 'chat' && !pick.faulted && THINK.includes(task.phase)) {
     return { route: { ...pick, why: `${pick.why} (a question about the ${task.phase}: its own effort)` }, task }
   }
-  const keep = (why: string) => ({
-    route: { ...pick, phase: task.phase, hard: task.hard, effort: task.effort, kept: true, why },
-    task,
-  })
   // A side question or a closing word gets its own (talk) effort but does not end the work under way.
   if (!pick.continues) return { route: pick, task: TALK.includes(pick.phase) ? task : fresh }
   // Pushback on a plan (it fell short) redoes the plan, whatever phase the message reads as (often fix): pushback is not

@@ -19,7 +19,7 @@ type Answer = { deny: string } | { isError: true } | { approved: true }
  * A session on a managed model: what the classifier answers, what each request carried, the lines the plugin added, the
  * status lines shown and the turn records kept (in a file system in memory).
  */
-function engine(on: On, reply: string, answer: Answer = { approved: true }) {
+function engine(on: On, reply: string | (() => string), answer: Answer = { approved: true }) {
   const seen = { sent: [] as unknown[], added: [] as string[], status: [] as string[], files: new Map<string, string>() }
   const records = () => [...seen.files.values()].flatMap(t => t.split('\n').filter(Boolean)).map(l => JSON.parse(l) as Record<string, unknown>)
   on('command.register', () => ({ value: { command: 'effort-pilot' } }))
@@ -27,7 +27,7 @@ function engine(on: On, reply: string, answer: Answer = { approved: true }) {
   on('session.id', () => ({ value: 's1' }))
   on('session.messages', () => ({ value: [] }))
   on('clock.now', () => ({ value: 0 }))
-  on('model.complete', () => ({ value: { isAnswered: true, text: reply, usage } }))
+  on('model.complete', () => ({ value: { isAnswered: true, text: typeof reply === 'string' ? reply : reply(), usage } }))
   on('prompt.submit', (_$, e) => ({ text: e.text }))
   on('ui.status', (_$, e) => {
     seen.status.push(e.text ?? '')
@@ -94,6 +94,31 @@ test('an approved plan adds one line naming the build effort, and the next reque
   await step($, 1)
   expect(seen.added).toEqual(['Effort Pilot: reasoning effort is now medium, for carrying out the approved plan.'])
   expect(seen.sent).toEqual(['high', 'medium'])
+})
+
+test('after an approved plan, a remark or a side question keeps the build effort; a new tiny task may go low', async ($, on) => {
+  const read = (phase: string, continues: boolean) => JSON.stringify({ phase, hard: false, continues, asked: 'none', build: 'none', faulted: false, why: `reads as ${phase}` })
+  let reply = PLAN
+  const seen = engine(on, () => reply)
+  await planning($)
+  await exit($)
+  await step($, 1)
+  await complete($)
+  const said = async (text: string, turnId: string) => {
+    await $.prompt.submit({ text, origin: { kind: 'composer' } } as never)
+    await $.classic.UserPromptSubmit({ prompt: text, permission_mode: 'default' } as never)
+    await $.turn.start({ text, turnId })
+    for await (const _ of $.turn.step({ turnId, index: 0, model: 'claude-opus-5-5', effort: 'high', messageCount: 3 })) { /* drain */ }
+    await $.turn.complete({ turnId, answer: 'done', durationMs: 5, isAborted: false, reason: 'answer' } as never)
+  }
+  reply = read('chat', true)
+  await said('By the way, we never said: the project uses our usual stack, with everything in the database.', 't2')
+  reply = read('chat', false)
+  await said('And which port does the old service run on?', 't3')
+  reply = read('trivial', false)
+  await said('Fix the typo in the README title.', 't4')
+  expect(seen.sent).toEqual(['high', 'medium', 'medium', 'medium', 'low'])
+  expect(seen.status.at(-1)).toBe('effort: low trivial')
 })
 
 test('the request after an approved plan counts as gone at the build effort, not the planning one', async ($, on) => {

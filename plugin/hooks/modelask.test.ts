@@ -229,13 +229,13 @@ test('asking for the session\'s own model hands the loop back to it', async ($, 
 })
 
 test('on a model the pilot manages, the effort is routed turn by turn', async ($, on) => {
-  const seen = engine(on, { 'fable 5.1': reply({ phase: 'chat', model: 'fable 5.1' }), 'quick question': reply({ phase: 'chat' }) })
+  const seen = engine(on, { 'fable 5.1': reply({ phase: 'chat', model: 'fable 5.1' }), 'fix the typo': reply({ phase: 'trivial' }) })
   await said($, 'switch to fable 5.1')
   await said($, 'Add an export button to the reports page.')
-  await said($, 'quick question: what is the default port?')
+  await said($, 'fix the typo in the README title')
   expect(seen.models).toEqual(['claude-fable-5-1', 'claude-fable-5-1', 'claude-fable-5-1'])
   expect(seen.sent).toEqual(['low', 'medium', 'low'])
-  expect(seen.status.at(-1)).toBe('effort: low chat · fable-5-1')
+  expect(seen.status.at(-1)).toBe('effort: low trivial · fable-5-1')
 })
 
 test('a model one of the two reads misses is taken when a third read names it; two different models are not', async ($, on) => {
@@ -370,10 +370,10 @@ describe('what a switch tells the person and the model', () => {
     expect(seen.notices).toEqual(['Effort Pilot: now on sonnet at low, as you asked; the model holds until Claude Code restarts (say "back to opus" or use /model to change).'])
   })
   test('an effort-only change still toasts the effort', async ($, on) => {
-    const seen = engine(on, { 'quick question': reply({ phase: 'chat' }) })
+    const seen = engine(on, { 'fix the typo': reply({ phase: 'trivial' }) })
     await said($, 'Add an export button to the reports page.')
-    await said($, 'quick question: what is the default port?')
-    expect(seen.toasts).toEqual(['effort: med → low chat'])
+    await said($, 'fix the typo in the README title')
+    expect(seen.toasts).toEqual(['effort: med → low trivial'])
   })
   test('a switch with no effort named goes at the person\'s own effort, and says so', async ($, on) => {
     const seen = engine(on, { 'switch to sonnet': reply({ phase: 'chat', model: 'sonnet' }) })

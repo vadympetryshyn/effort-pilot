@@ -26,10 +26,41 @@ describe('carry', () => {
     expect(r.route.kept).toBe(true)
     expect(carry(task('analyze', 'high'), route('analyze', 'high', { continues: true }), 'but would the same happen with two workers?').route.effort).toBe('high')
   })
-  test('a question about a build takes its own effort; the build stays the work', () => {
+  test('a question about a build keeps the build\'s effort; the build stays the work', () => {
     const r = carry(task('implement', 'high'), route('chat', 'low', { continues: true }), 'is coral the orange one?')
-    expect(r.route.effort).toBe('low')
+    expect(r.route.effort).toBe('high')
+    expect(r.route.kept).toBe(true)
     expect(r.task.phase).toBe('implement')
+  })
+  test('an aside during a build (a remark, a side question) keeps the build\'s effort; the build stays the work', () => {
+    for (const continues of [true, false]) {
+      const r = carry(task('implement', 'medium'), route('chat', 'low', { continues }), 'by the way, we never said: the project uses our usual stack')
+      expect(r.route).toEqual(expect.objectContaining({ phase: 'chat', effort: 'medium', kept: true }))
+      expect(r.task).toEqual(expect.objectContaining({ phase: 'implement', effort: 'medium', text: 'the work' }))
+    }
+    expect(carry(task('fix', 'high'), route('chat', 'low', { continues: false }), 'what is a mutex, by the way?').route.effort).toBe('high')
+  })
+  test('during a build, a new tiny task of its own still takes its own effort, and the build stays the work', () => {
+    const r = carry(task('implement', 'medium'), route('trivial', 'low', { continues: false }), 'rename the README title to Changelog')
+    expect(r.route.effort).toBe('low')
+    expect(r.route.kept).toBe(undefined)
+    expect(r.task.phase).toBe('implement')
+  })
+  test('during a build, a new task of another phase takes its own effort and becomes the work', () => {
+    const r = carry(task('implement', 'medium'), route('analyze', 'high', { continues: false }), 'why is the nightly job slow?')
+    expect(r.route.effort).toBe('high')
+    expect(r.task.phase).toBe('analyze')
+  })
+  test('an approved plan, then a remark read as chat, keeps the build effort; a new tiny task after it may go low', () => {
+    const built = afterPlan('Move the account services into their own project.')
+    expect(built.route.effort).toBe('medium')
+    const remark = carry(built.task, route('chat', 'low', { continues: true }), 'by the way, we did not discuss it: the project uses our standard stack')
+    expect(remark.route.effort).toBe('medium')
+    const aside = carry(remark.task, route('chat', 'low', { continues: false }), 'and which port does the old service run on?')
+    expect(aside.route.effort).toBe('medium')
+    const tiny = carry(aside.task, route('trivial', 'low', { continues: false }), 'fix the typo in the README title')
+    expect(tiny.route.effort).toBe('low')
+    expect(tiny.task.phase).toBe('implement')
   })
   test('a word to go on during a build keeps the build\'s effort', () => {
     for (const text of ['done', 'ok', 'continue']) {
@@ -41,9 +72,9 @@ describe('carry', () => {
     }
     expect(carry(task('fix', 'high'), route('trivial', 'low', { continues: true }), 'go on').route.effort).toBe('high')
   })
-  test('a question about a build still takes its own effort at the default build effort', () => {
+  test('a question about a build keeps the default build effort', () => {
     const r = carry(task('implement', 'medium'), route('chat', 'low', { continues: true }), 'which file holds the button?')
-    expect(r.route.effort).toBe('low')
+    expect(r.route.effort).toBe('medium')
     expect(r.task.phase).toBe('implement')
     expect(r.task.effort).toBe('medium')
   })
@@ -78,10 +109,10 @@ describe('carry', () => {
     expect(r.route.kept).toBe(true)
     expect(r.task.phase).toBe('fix')
   })
-  test('a question about a build that does not say it fell short still takes its own effort', () => {
+  test('a question about a build that does not say it fell short keeps the build\'s effort too', () => {
     const r = carry(task('implement', 'medium'), route('chat', 'low', { continues: true, faulted: false }), 'why did you put it in a new file?')
-    expect(r.route.effort).toBe('low')
-    expect(r.route.kept).toBe(undefined)
+    expect(r.route.effort).toBe('medium')
+    expect(r.route.kept).toBe(true)
     expect(r.task.phase).toBe('implement')
   })
   test('restating the last answer (translate, shorten) takes its own light effort', () => {
@@ -194,7 +225,8 @@ describe('an effort the person asks for', () => {
   })
   test('a new task ends it', () => {
     const asked = carry(null, route('implement', 'xhigh', { asked: 'xhigh' }), 'do it on xhigh').task
-    expect(carry(asked, route('chat', 'low', { continues: false }), 'what is a mutex?').route.effort).toBe('low')
+    expect(carry(asked, route('implement', 'medium', { continues: false }), 'Add a print button to the reports page.').route.effort).toBe('medium')
+    expect(carry(asked, route('trivial', 'low', { continues: false }), 'fix the typo in the README title').route.effort).toBe('low')
   })
   test('the effort asked for the build carries out the plan', () => {
     const planning: Task = { ...task('plan', 'xhigh'), build: 'high' }

@@ -199,12 +199,12 @@ describe('a message that says the work fell short, read as chat', () => {
     expect(seen.sent).toEqual(['high'])
     expect(seen.status.at(-1)).toBe('effort: high fix')
   })
-  test('after a side question goes as a fix too; a question that does not say so stays at the talk effort', async ($, on) => {
-    const seen = engine(on, [ASIDE, FAULTED, ASIDE])
-    for (const text of ['What time zone are the logs in?', 'Why did it pick the wrong country again? Don\'t you read the rules?', 'Which file holds the rules?']) {
+  test('after a side question goes as a fix too; a question that does not say so stays at the talk effort, and one during that fix keeps it', async ($, on) => {
+    const seen = engine(on, [ASIDE, ASIDE, FAULTED, ASIDE])
+    for (const text of ['What time zone are the logs in?', 'And which file holds the rules?', 'Why did it pick the wrong country again? Don\'t you read the rules?', 'Which file holds the rules?']) {
       await $.turn.complete({ turnId: await turn($, text), answer: 'done', durationMs: 5, isAborted: false, reason: 'answer' } as never)
     }
-    expect(seen.sent).toEqual(['low', 'high', 'low'])
+    expect(seen.sent).toEqual(['low', 'low', 'high', 'high'])
   })
 })
 

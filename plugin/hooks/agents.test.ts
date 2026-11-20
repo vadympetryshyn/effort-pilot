@@ -207,12 +207,12 @@ describe('the agents setting', () => {
     expect(seen.sent).toEqual(['high', 'high', 'high'])
   })
 
-  test('a listed agent woken again keeps its work: a question about the build at its own effort, never below the build effort', { options: { agents: '*' } }, async ($, on) => {
+  test('a listed agent woken again keeps its work: a question about the build at the build\'s effort', { options: { agents: '*' } }, async ($, on) => {
     const seen = await session($, on, [pick('fix', true), pick('chat', false, true)])
     await spawn($, 'lab:builder')
     await spawn($, 'lab:builder', { text: 'Which file did you change?', turn: 's2', spawn: { resume: { agentId: 'a1' } } })
     expect(seen.prompts[1]).toContain('The subagent\'s work under way (fix)')
-    expect(seen.sent).toEqual(['high', 'medium'])
+    expect(seen.sent).toEqual(['high', 'high'])
   })
 
   test('a listed agent resumed with no spawn seen before (the plugin reloaded mid-run) is not read from its wake-up message: it keeps its own effort', { options: { agents: '*' } }, async ($, on) => {

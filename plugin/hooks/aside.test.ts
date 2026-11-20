@@ -7,13 +7,14 @@ import type { Engine } from 'claude-code/testing'
 // effort), every switch rewrites the conversation's prompt cache: the pilot stands aside and the person's effort goes.
 
 const BUILD = '{"phase":"implement","hard":false,"continues":false,"asked":"none","build":"none","faulted":false,"why":"add the button"}'
-const CHAT = '{"phase":"chat","hard":false,"continues":false,"asked":"none","build":"none","faulted":false,"why":"a question"}'
+// A tiny task of its own after the build: the talk effort (an aside during the build would keep the build's).
+const TINY = '{"phase":"trivial","hard":false,"continues":false,"asked":"none","build":"none","faulted":false,"why":"a typo of its own"}'
 type Usage = { input_tokens: number; output_tokens: number; cache_read_input_tokens: number; cache_creation_input_tokens: number }
 const usage = (cacheRead: number, cacheWrite = 0): Usage => ({ input_tokens: 10, output_tokens: 5, cache_read_input_tokens: cacheRead, cache_creation_input_tokens: cacheWrite })
 
 /** A session on a model and a credential: counts classifier calls and records what each request carried. */
 function engine(on: On, model: string, credential: boolean, answers: Usage[] = []) {
-  const seen = { calls: 0, sent: [] as unknown[], toasts: [] as string[], replies: [BUILD, CHAT, BUILD, CHAT] }
+  const seen = { calls: 0, sent: [] as unknown[], toasts: [] as string[], replies: [BUILD, TINY, BUILD, TINY] }
   let now = 0
   on('command.register', () => ({ value: { command: 'effort-pilot' } }))
   on('session.model', () => ({ value: model }))
