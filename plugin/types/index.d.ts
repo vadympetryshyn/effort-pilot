@@ -66,6 +66,11 @@ export type Task = {
    */
   testModel?: string
   test?: Effort
+  /**
+   * The build carries out a plan (approved, or built after one read in chat): its continuing follow-ups keep its effort,
+   * never the hard-build one, as the plan's own build does. A new task drops it.
+   */
+  fromPlan?: true
 }
 
 /** One finished main-loop turn, as measuring keeps it. arm control: classified, but the effort was left as it was. */

@@ -40,6 +40,18 @@ describe('carry', () => {
     }
     expect(carry(task('fix', 'high'), route('chat', 'low', { continues: false }), 'what is a mutex, by the way?').route.effort).toBe('high')
   })
+  test('the build of a plan keeps its effort on a continuing hard build step; a build without a plan rises to it', () => {
+    const built = afterPlan('Move the account services into their own project.')
+    const hard = route('implement', 'high', { hard: true, continues: true })
+    const r = carry(built.task, hard, 'by the way, the project uses our standard stack')
+    expect(r.route).toEqual(expect.objectContaining({ phase: 'implement', effort: 'medium', hard: false, kept: true }))
+    expect(r.task).toEqual(expect.objectContaining({ effort: 'medium', fromPlan: true }))
+    expect(carry(r.task, route('fix', 'high', { hard: true, continues: true }), 'and the migration must keep the old rows').route.effort).toBe('medium')
+    const fromChat = carry(task('plan', 'high'), route('implement', 'medium', { continues: true }), 'looks good, build it')
+    expect(carry(fromChat.task, hard, 'and put it behind a flag').route.effort).toBe('medium')
+    expect(carry(task('implement', 'medium'), hard, 'and put it behind a flag').route.effort).toBe('high')
+    expect(carry(built.task, route('implement', 'high', { hard: true, continues: false }), 'Deploy the billing service.').task.fromPlan).toBe(undefined)
+  })
   test('during a build, a new tiny task of its own still takes its own effort, and the build stays the work', () => {
     const r = carry(task('implement', 'medium'), route('trivial', 'low', { continues: false }), 'rename the README title to Changelog')
     expect(r.route.effort).toBe('low')

@@ -385,10 +385,14 @@ export function carry(task: Task | null, pick: Route, text: string, config: Conf
       why: `${pick.why} (carrying out the plan: ${task.build || model ? 'as you asked' : effort})`,
     }
     const { buildModel: _m, ...rest } = fresh
-    return { route: built, task: { ...rest, hard: false, effort, asked: task.build, ...testStage(pick, task) } }
+    return { route: built, task: { ...rest, hard: false, effort, asked: task.build, fromPlan: true, ...testStage(pick, task) } }
   }
   // Building what an analysis worked out is the same work: a test stage it holds stays.
   if (THINK.includes(task.phase) && BUILD.includes(pick.phase)) return { route: pick, task: { ...fresh, ...testStage(pick, task) } }
+  // The build of a plan (approved, or built after one): a continuing build step keeps its effort, never the hard-build
+  // one, as afterPlan sets it: the hard thinking went into the plan. A requirement added to it reads as a hard build
+  // now and then, and raised the build, and every later turn of it, to the hard effort.
+  if (task.fromPlan && BUILD.includes(task.phase) && BUILD.includes(pick.phase)) return keep(`building the plan: keeps ${task.effort}`)
   if (RANK[pick.effort] < RANK[task.effort]) return keep(`follow-up to ${task.phase}: keeps ${task.effort}`)
   return { route: pick, task: { ...task, phase: pick.phase, hard: pick.hard, effort: pick.effort } }
 }
@@ -408,7 +412,7 @@ export function afterPlan(plan: string, planning: Task | null = null, config: Co
     : asked ? `plan approved: carrying it out at ${asked}, as you asked` : `plan approved: carrying it out (planned at ${config.plan})`
   return {
     route: { phase: 'implement', hard: false, effort, continues: true, why, ...(asked ? { asked } : {}), ...(model ? { model } : {}) },
-    task: { phase: 'implement', hard: false, effort, text: plan.slice(0, 600), ...(asked ? { asked } : {}), ...testStage(null, planning) },
+    task: { phase: 'implement', hard: false, effort, text: plan.slice(0, 600), fromPlan: true, ...(asked ? { asked } : {}), ...testStage(null, planning) },
   }
 }
 

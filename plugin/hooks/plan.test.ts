@@ -121,6 +121,28 @@ test('after an approved plan, a remark or a side question keeps the build effort
   expect(seen.status.at(-1)).toBe('effort: low trivial')
 })
 
+test('after an approved plan, a remark read as a hard build step keeps the build effort, and so does the question after it', async ($, on) => {
+  const read = (phase: string, hard: boolean) => JSON.stringify({ phase, hard, continues: true, asked: 'none', build: 'none', faulted: false, why: `reads as ${phase}` })
+  let reply = PLAN
+  const seen = engine(on, () => reply)
+  await planning($)
+  await exit($)
+  await step($, 1)
+  await complete($)
+  const said = async (text: string, turnId: string) => {
+    await $.prompt.submit({ text, origin: { kind: 'composer' } } as never)
+    await $.classic.UserPromptSubmit({ prompt: text, permission_mode: 'default' } as never)
+    await $.turn.start({ text, turnId })
+    for await (const _ of $.turn.step({ turnId, index: 0, model: 'claude-opus-5-5', effort: 'high', messageCount: 3 })) { /* drain */ }
+    await $.turn.complete({ turnId, answer: 'done', durationMs: 5, isAborted: false, reason: 'answer' } as never)
+  }
+  reply = read('implement', true)
+  await said('By the way, we did not discuss it: the project uses our standard stack, with everything in the database.', 't2')
+  reply = read('chat', false)
+  await said('And which port does the old service run on?', 't3')
+  expect(seen.sent).toEqual(['high', 'medium', 'medium', 'medium'])
+})
+
 test('plan mode started with a prompt begins the plan with it: a message typed while planning is read against the plan, not the work before it', async ($, on) => {
   const prompts: string[] = []
   let reply = BUILD
