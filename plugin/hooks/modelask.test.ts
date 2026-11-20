@@ -355,7 +355,7 @@ test('a model asked earlier gives way to the plan-mode model in plan mode, and c
   await step($, id, 1)
   expect(seen.models).toEqual(['sonnet', 'claude-fable-5-2', 'sonnet'])
   expect(seen.sent).toEqual(['medium', 'high', 'medium'])
-  expect(seen.added).toEqual(['Effort Pilot: reasoning effort is now medium, on sonnet, for carrying out the approved plan.'])
+  expect(seen.added).toEqual(['Effort Pilot: on sonnet now; reasoning effort goes to medium from the next message, for carrying out the approved plan.'])
 })
 
 describe('what a switch tells the person and the model', () => {

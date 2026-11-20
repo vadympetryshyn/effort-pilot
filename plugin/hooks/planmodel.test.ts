@@ -136,7 +136,7 @@ test('an approved plan goes back to the session\'s model at the build effort, an
   await step($, id, 1)
   expect(seen.models).toEqual([FABLE, SESSION])
   expect(seen.sent).toEqual(['high', 'medium'])
-  expect(seen.added).toEqual([`Effort Pilot: reasoning effort is now medium, back on the session's model (${SESSION}), for carrying out the approved plan.`])
+  expect(seen.added).toEqual([`Effort Pilot: back on the session's model (${SESSION}) now; reasoning effort goes to medium from the next message, for carrying out the approved plan.`])
   expect(seen.status.at(-1)).toBe('effort: med implement')
 })
 
@@ -147,7 +147,7 @@ test('plan mode entered mid-turn moves the next request to the plan-mode model, 
   await step($, id, 1)
   expect(seen.models).toEqual([SESSION, 'fable'])
   expect(seen.sent).toEqual(['medium', 'high'])
-  expect(seen.added).toEqual(['Effort Pilot: reasoning effort is now high, on fable, for planning.'])
+  expect(seen.added).toEqual(['Effort Pilot: on fable now; reasoning effort goes to high from the next message, for planning.'])
 })
 
 test('plan mode entered mid-turn at the effort already in effect still says the model moves', { options: { planModeModel: 'fable', buildEffort: 'high' } }, async ($, on) => {
@@ -429,7 +429,7 @@ describe('a session on the plan-mode model', () => {
     expect(seen.models).toEqual([SESSION, SESSION, SESSION, SESSION])
     expect(seen.sent).toEqual(['high', 'medium', 'high', 'medium'])
     expect(said(seen)).toEqual([TOAST])
-    expect(seen.added).toEqual([LINE('medium'), 'Effort Pilot: reasoning effort is now medium, for carrying out the approved plan.'])
+    expect(seen.added).toEqual([LINE('medium'), 'Effort Pilot: reasoning effort goes to medium from the next message, for carrying out the approved plan.'])
   })
 
   test('leaving plan mode by Shift+Tab to build says so with the build\'s prompt', { options: OWN }, async ($, on) => {
@@ -527,7 +527,7 @@ describe('a session on another model than the plan-mode model', () => {
     await exit($)
     await step($, id, 1)
     expect(seen.models).toEqual([FABLE, SESSION])
-    expect(seen.added).toEqual([`Effort Pilot: reasoning effort is now medium, back on the session's model (${SESSION}), for carrying out the approved plan.`])
+    expect(seen.added).toEqual([`Effort Pilot: back on the session's model (${SESSION}) now; reasoning effort goes to medium from the next message, for carrying out the approved plan.`])
     expect(seen.toasts.filter(t => t.includes('your /model choice'))).toEqual([])
   })
 })

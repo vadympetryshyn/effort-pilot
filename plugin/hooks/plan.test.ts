@@ -92,7 +92,7 @@ test('an approved plan adds one line naming the build effort, and the next reque
   await planning($)
   await exit($)
   await step($, 1)
-  expect(seen.added).toEqual(['Effort Pilot: reasoning effort is now medium, for carrying out the approved plan.'])
+  expect(seen.added).toEqual(['Effort Pilot: reasoning effort goes to medium from the next message, for carrying out the approved plan.'])
   expect(seen.sent).toEqual(['high', 'medium'])
 })
 
@@ -191,7 +191,7 @@ test('plan mode entered mid-turn adds one line naming the plan effort, and the n
   await building($)
   await enter($)
   await step($, 1)
-  expect(seen.added).toEqual(['Effort Pilot: reasoning effort is now high, for planning.'])
+  expect(seen.added).toEqual(['Effort Pilot: reasoning effort goes to high from the next message, for planning.'])
   expect(seen.sent).toEqual(['medium', 'high'])
 })
 

@@ -960,12 +960,14 @@ async function aim($: EngineInterface, name: string, any = false): Promise<Effor
 }
 
 /**
- * An effort a tool call changed (a plan approved, plan mode entered) would wait through the steps whose only new input
- * is tool results. A user-side line after the result is new input, as a skill's body is: the next request takes the
- * effort. Only when that request goes at another effort than the one in effect. A context line does not do it: it
- * goes as a system message, not new input.
+ * An effort a tool call changed (a plan approved, plan mode entered, a skill that carries a plan out) waits through the
+ * steps whose only new input is tool results: on a model that takes effort per message, the engine sends no new level
+ * on tool results alone. The line says so, only when the effort or the model moves. waits: the line follows a tool
+ * result alone, where the engine sends it as a system message, no new input (an approved plan, plan mode entered), so
+ * the effort takes over from the next message; the model, sent per request, moves now. Was: the line said the effort
+ * "is now" the new one, while the rest of that turn still went at the old.
  */
-async function applyNow($: EngineInterface, purpose: string, line: string | null = null, also: string | null = null) {
+async function applyNow($: EngineInterface, purpose: string, line: string | null = null, also: string | null = null, waits = false) {
   const name = await read($, model)
   const [w, next, alt] = [await read($, wire), await aim($, name), await altModel($, name)]
   // Another model is entered or left: the line says so, and the request after it goes on that model.
@@ -973,8 +975,11 @@ async function applyNow($: EngineInterface, purpose: string, line: string | null
   const changed = moves || (!!w && !!next && next !== w)
   if (!line && !changed && !also) return
   const where = !moves ? '' : alt ? `on ${alt}` : `back on the session's model (${name})`
+  const later = waits && !!w && !!next && next !== w
   const own = line ?? (!changed ? null : next
-    ? `Effort Pilot: reasoning effort is now ${next}${where ? `, ${where}` : ''}, ${purpose}.`
+    ? later
+      ? `Effort Pilot: ${where ? `${where} now; ` : ''}reasoning effort goes to ${next} from the next message, ${purpose}.`
+      : `Effort Pilot: reasoning effort is now ${next}${where ? `, ${where}` : ''}, ${purpose}.`
     : `Effort Pilot: ${alt ? `the model is now ${alt}` : where}, ${purpose}.`)
   const text = [own, also].filter(Boolean).join(' ')
   // Never throws: the tool has already run, and the hook must hand back its result.
@@ -1473,7 +1478,7 @@ export const register: Register = (on, options) => {
       await setPlan($, false)
       const line = await approved($, result.text ?? '')
       await publish($)
-      await applyNow($, 'for carrying out the approved plan', line, await testLine($))
+      await applyNow($, 'for carrying out the approved plan', line, await testLine($), true)
     }
     return result
   }).catch(($, e, next) => next(e))
@@ -1482,7 +1487,7 @@ export const register: Register = (on, options) => {
     if (e.agentId === undefined && !result.deny && !result.isError) {
       await setPlan($, true)
       await publish($)
-      await applyNow($, 'for planning')
+      await applyNow($, 'for planning', null, null, true)
     }
     return result
   }).catch(($, e, next) => next(e))
