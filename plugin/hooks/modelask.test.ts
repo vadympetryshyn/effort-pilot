@@ -461,16 +461,17 @@ describe('what a switch tells the person and the model', () => {
 const NOTE = 'A note from the Effort Pilot plugin; nothing to do for it now. '
 
 describe('where the pilot switches no model, the model reads why', () => {
-  test('with the effort set by hand, the first prompt after it says the pilot is paused, once, and no switch is made', async ($, on) => {
+  test('with the effort set by hand, a model asked for in words still switches, at the effort the message names', async ($, on) => {
     const seen = engine(on, { 'switch me to sonnet': SONNET_MEDIUM })
     await run($, 'effort', 'high')
     await said($, 'switch me to sonnet at medium')
     await said($, 'Add an export button to the reports page.')
-    expect(seen.models).toEqual([SESSION, SESSION])
-    expect(seen.notices).toEqual([])
-    expect(seen.context).toEqual([`${NOTE}Effort Pilot: The person set the effort by hand (/effort high), so the pilot is paused in this session: it sets no effort and switches no model asked for in words until /effort-pilot on (or /effort auto). The person's /model switches the model.`])
+    expect(seen.models).toEqual(['sonnet', 'sonnet'])
+    expect(seen.sent).toEqual(['medium', 'medium'])
+    expect(seen.notices).toEqual([SWITCHED])
+    expect(seen.context.join(' ')).not.toContain('paused')
   })
-  test('another level set by hand says so again; once the pilot is back, nothing is said', async ($, on) => {
+  test('levels set by hand go on the next message\'s work with no line for the model; /effort auto hands it back to the pilot', async ($, on) => {
     const seen = engine(on)
     await run($, 'effort', 'high')
     await said($, 'Add an export button to the reports page.')
@@ -478,8 +479,8 @@ describe('where the pilot switches no model, the model reads why', () => {
     await said($, 'Add a print button to the reports page.')
     await run($, 'effort', 'auto')
     await said($, 'Add a share button to the reports page.')
-    expect(seen.context).toHaveLength(2)
-    expect(seen.context[1]).toContain('(/effort low)')
+    expect(seen.sent).toEqual(['high', 'low', 'medium'])
+    expect(seen.context).toEqual([])
   })
   test('on a model the pilot does not steer, the first prompt says so, once', async ($, on) => {
     const seen = engine(on, { 'switch to opus': reply({ phase: 'chat', model: 'opus' }) })
@@ -494,19 +495,6 @@ describe('where the pilot switches no model, the model reads why', () => {
     seen.session = 'claude-opus-4-6'
     await said($, 'switch to sonnet')
     expect(seen.context).toEqual([`${NOTE}Effort Pilot: The pilot stands aside on claude-opus-4-6: effort is one setting of the whole request on it, so a change would rewrite the prompt cache. It sets no effort and switches no model asked for in words while the session is on it. The person's /model switches the model.`])
-  })
-  test('a queued message that starts a turn of its own leaves no line of why no switch is made for a later prompt', async ($, on) => {
-    const seen = engine(on)
-    await run($, 'effort', 'high')
-    const id = await turn($, 'Add a share button to the reports page.')
-    seen.context.length = 0
-    await $.prompt.submit({ text: 'Add an export button to the reports page.', turnId: id, origin: { kind: 'composer' } } as never)
-    await complete($, id)
-    await run($, 'effort', 'low')
-    await $.turn.start({ text: 'Add an export button to the reports page.', turnId: 'queued1' })
-    await complete($, 'queued1')
-    await said($, 'Add a print button to the reports page.')
-    expect(seen.context).toEqual([])
   })
   test('a switch typed mid-turn goes with the message itself, read once, and the request that carries it goes on the asked model', async ($, on) => {
     const seen = engine(on, { 'switch me to sonnet': SONNET_MEDIUM })

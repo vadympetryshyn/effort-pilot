@@ -2,6 +2,11 @@
 
 All notable changes. Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions: [SemVer](https://semver.org/).
 
+## [1.19.0] — 2026-11-22
+
+- Setting the effort by hand no longer switches Effort Pilot off. `/effort high`, typed or run by a plugin (an effort picker in the prompt line, say), paused the pilot for the rest of the session: it set no effort and switched no model asked for in words until `/effort-pilot on`, so one click on a picker's effort turned it off. Now `/effort <level>` means what naming the level in words means. The work under way takes it at once (the status line, the band and what other plugins show say so), the next message you send goes at it unless that message names an effort of its own, its follow-ups keep it, and a new task goes back to the pilot's pick. In plan mode it is the planning's effort. Such turns are never control turns when measuring. `/effort auto` hands the effort back to the pilot now, as before; `/effort-pilot off` is still the one way to switch the pilot off.
+- Switching the model by hand (`/model`, typed or from a picker) keeps the pilot on, as before: it ends a model you asked for in words, and the pilot goes on setting the effort on the new model. Now covered by tests.
+
 ## [1.18.1] — 2026-11-20
 
 - A question or a remark in the middle of a build now keeps the build's effort. Say a plan was just approved and the build runs at `medium`, and you add "by the way, we never said: the project uses our usual stack", or ask "which port does the old service run on?". Such a message could read as a question or a side remark and run at `low`, while the agent took the new requirement into the build, or answered and went on building, in that same turn. Now, while a build or a fix is the work under way, anything the classifier reads as a question, a remark or a side question (about the build or not) goes at the build's effort, and the build stays the work under way. Only a new task moves off it: a tiny request of its own ("fix the typo in the README title") still goes at `low`, and other new work at its own effort. Reverses the rule, in place since 1.0 and kept in 1.3.1, that a question about the build runs at the talk effort because answering it builds nothing. A question about a plan or an analysis still goes at `low`, as before. The classifier is unchanged.

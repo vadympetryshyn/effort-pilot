@@ -175,14 +175,15 @@ test('a subagent\'s requests in plan mode keep the model they resolve to', { opt
   expect(seen.models).toEqual([FABLE])
 })
 
-test('with the pilot off, or paused by /effort, plan mode keeps the session\'s model', { options: { planModeModel: FABLE } }, async ($, on) => {
+test('with the pilot off, plan mode keeps the session\'s model; with an effort set by hand it goes on the plan-mode model at that effort', { options: { planModeModel: FABLE } }, async ($, on) => {
   const seen = engine(on, PLAN)
   await run($, 'off')
   await planning($)
   await run($, 'on')
   await $.command.run({ command: 'effort', args: 'max', origin: { kind: 'composer' }, presentation: { isFullscreen: false, columns: 80 } })
   await planning($)
-  expect(seen.models).toEqual([SESSION, SESSION])
+  expect(seen.models).toEqual([SESSION, FABLE])
+  expect(seen.sent.at(-1)).toBe('max')
 })
 
 test('on a plan-mode model where effort is one setting of the whole request, the model moves and the effort is left as it is', { options: { planModeModel: 'claude-fable-5', planEffort: 'max' } }, async ($, on) => {
@@ -363,11 +364,12 @@ describe('the plan-mode model for plans outside plan mode', () => {
     expect(seen.models).toEqual([SESSION])
   })
 
-  test('with the effort set by hand, a plan keeps the session\'s model', { options: ON }, async ($, on) => {
+  test('with the effort set by hand, a plan still goes on the plan-mode model, at that effort', { options: ON }, async ($, on) => {
     const seen = engine(on, PLAN)
     await $.command.run({ command: 'effort', args: 'max', origin: { kind: 'composer' }, presentation: { isFullscreen: false, columns: 80 } })
     await say($, 'Plan a CSV export for the reports page.')
-    expect(seen.models).toEqual([SESSION])
+    expect(seen.models).toEqual([FABLE])
+    expect(seen.sent).toEqual(['max'])
   })
 
   test('a subagent spawned during plan work keeps its model', { options: ON }, async ($, on) => {
@@ -491,9 +493,9 @@ describe('a session on the plan-mode model', () => {
     expect(said(seen)).toEqual([])
   })
 
-  test('with the pilot off, in shadow mode or paused by /effort, nothing is said', { options: OWN }, async ($, on) => {
+  test('with the pilot off or in shadow mode, nothing is said', { options: OWN }, async ($, on) => {
     const seen = engine(on, PLAN)
-    for (const how of [() => run($, 'off'), () => run($, 'shadow'), () => $.command.run({ command: 'effort', args: 'max', origin: { kind: 'composer' }, presentation: { isFullscreen: false, columns: 80 } })]) {
+    for (const how of [() => run($, 'off'), () => run($, 'shadow')]) {
       await run($, 'on')
       await how()
       const id = await planning($)

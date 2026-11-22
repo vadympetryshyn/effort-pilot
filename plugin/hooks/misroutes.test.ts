@@ -180,13 +180,15 @@ describe('a skill the agent loads during a plan', () => {
     expect(seen.models).toEqual([FABLE, FABLE])
   })
 
-  test('with the effort set by hand, the skill is not read', { options: ON }, async ($, on) => {
+  test('with the effort set by hand, the plan goes at it and the skill is still read: the build at the build effort', { options: ON }, async ($, on) => {
     const seen = engine(on, [PLAN, CARRY])
     await $.command.run({ command: 'effort', args: 'max', origin: { kind: 'composer' }, presentation: { isFullscreen: false, columns: 80 } })
     const id = await turn($, PLAN_IT)
     await skill($, 'implement-plan')
     await step($, id, 1)
-    expect(seen.prompts).toHaveLength(0)
+    expect(seen.prompts).toHaveLength(2)
+    expect(seen.models).toEqual([FABLE, SESSION])
+    expect(seen.sent).toEqual(['max', 'medium'])
   })
 })
 

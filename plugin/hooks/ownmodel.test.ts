@@ -171,9 +171,9 @@ describe('no word on a build', () => {
     expect(lines(seen)).toEqual([])
   })
 
-  test('with the pilot off, in shadow mode or paused by /effort', async ($, on) => {
+  test('with the pilot off or in shadow mode', async ($, on) => {
     const seen = engine(on, FABLE, BUILD)
-    for (const how of [() => run($, 'effort-pilot', 'off'), () => run($, 'effort-pilot', 'shadow'), () => run($, 'effort', 'max')]) {
+    for (const how of [() => run($, 'effort-pilot', 'off'), () => run($, 'effort-pilot', 'shadow')]) {
       await run($, 'effort-pilot', 'on')
       await how()
       await complete($, await say($, seen, 'Add an export button to the reports page.'))

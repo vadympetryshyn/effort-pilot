@@ -207,7 +207,6 @@ declare module 'claude-code' {
   interface PluginState {
     'effort-pilot': {
       mode: Mode
-      pin: Effort | null
       route: Shaped<Route | null>
       trail: Shaped<Route[]>
       tally: Shaped<Tally>
@@ -223,7 +222,7 @@ declare module 'claude-code' {
       ownBuild: boolean
       task: Shaped<Task | null>
       /** What the next request goes at, for other plugins to show: null when the pilot is not setting it. Its shape (effective-1) is read by other plugins: keep it. */
-      effective: Shaped<{ effort: Effort; source: 'auto' | 'pinned' } | null>
+      effective: Shaped<{ effort: Effort; source: 'auto' } | null>
       /**
        * The model the next main-loop request goes on, for other plugins to show, where the pilot sends it on another
        * model than the session's: one the person asked for in words (asked), one asked for making a plan (plan), or the

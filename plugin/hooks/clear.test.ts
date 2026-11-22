@@ -97,19 +97,20 @@ test('the pilot turned off stays off after /clear', async ($, on) => {
   expect((await $.command.run(run('effort-pilot', ''))).text).toBe('Effort Pilot: off')
 })
 
-test('an effort set by hand stays the person\'s after /clear: nothing classified, the request at their effort', async ($, on) => {
+test('an effort set by hand before /clear goes on the first message after it, and the pilot stays on', async ($, on) => {
   const { seen, clear } = await host($, on)
-  await $.command.run(run('effort', 'high'))
+  await $.command.run(run('effort', 'max'))
   await clear()
   await $.prompt.submit({ text: 'Plan a CSV export for the reports page.', origin: { kind: 'composer' } } as never)
   await firstRequest($, 't1')
-  expect(seen.calls).toBe(0)
-  expect(seen.sent).toEqual(['high'])
+  expect(seen.calls).toBe(1)
+  expect(seen.sent).toEqual(['max'])
+  expect((await $.command.run(run('effort-pilot', ''))).text).toBe('Effort Pilot: auto')
 })
 
-test('after /clear, /effort-pilot on hands the effort back to the pilot', async ($, on) => {
+test('after /clear, /effort-pilot on drops an effort set by hand: the pilot picks', async ($, on) => {
   const { seen, clear } = await host($, on)
-  await $.command.run(run('effort', 'high'))
+  await $.command.run(run('effort', 'max'))
   await clear()
   await $.command.run(run('effort-pilot', 'on'))
   await $.prompt.submit({ text: 'Plan a CSV export for the reports page.', origin: { kind: 'composer' } } as never)
